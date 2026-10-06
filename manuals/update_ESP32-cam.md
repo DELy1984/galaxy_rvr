@@ -4,7 +4,7 @@ Diese Anleitung beschreibt das Update der ESP32-CAM-Firmware über WLAN und die 
 
 ## Ausgangslage und Zieldatei
 
-Die am Rover angezeigte ESP32-CAM-Version ist **1.4.0**. SunFounder empfiehlt ein Update bei Version **1.5.1 oder niedriger**.
+Vor dem Update zeigte der Rover ESP32-CAM-Version **1.4.0**. SunFounder empfiehlt ein Update bei Version **1.5.1 oder niedriger**.
 
 Zum Prüfzeitpunkt **2026-10-05** war `2.0.0-fix2` der neueste offizielle GalaxyRVR-Release. Das Archiv enthält die ESP32-CAM-Datei:
 
@@ -54,7 +54,19 @@ Release-Archiv: [galaxy-rvr.ino.zip für `2.0.0-fix2`](https://github.com/sunfou
 | Zeitpunkt | ESP32-CAM-Version | LED / WLAN | Ergebnis |
 | --- | --- | --- | --- |
 | Vor dem Update | 1.4.0 | Andere Farbe blinkt; Rover-WLAN sichtbar | Update erforderlich |
-| Nach dem Update | Noch nicht geprüft | Noch nicht geprüft | Offen |
+| Nach dem Update (2026-10-06) | **1.5.4** (auf der OTA-Seite angezeigt) | WLAN-SSID `AI Camera-6959E0` | **Erfolgreich** |
+
+## Nachgelagertes R3-Update
+
+Nach dem ESP32-CAM-Update wurde am **2026-10-06** auch das R3-Board aktualisiert:
+
+- Windows erkannte den Rover als `USB-SERIAL CH340 (COM3)`.
+- Es wurde bestätigt, dass zuvor kein eigener Arduino-Code auf das Board geladen worden war.
+- Das offizielle SunFounder-Skript meldete den erfolgreichen Upload von `galaxy-rvr.ino.2.0.0.hex`.
+- Der Schalter wurde nach dem Upload zurück auf **Run** gestellt.
+- Danach wurde als WLAN-SSID `GalaxyRVR-6959E0` gemeldet. Das Telefon verbindet sich mit diesem WLAN, `http://192.168.4.1` ist erreichbar und die korrekte RoboPilot-App verbindet sich mit dem Rover. Zunächst wurde versehentlich eine andere App verwendet. Die Fahrsteuerung wurde getestet und der Rover reagiert.
+
+Der R3-Upload ist ein separater Vorgang und kein Bestandteil des ESP32-CAM-OTA-Updates.
 
 ## Wichtig: R3-Board und Fehlerfall
 

@@ -33,11 +33,11 @@ Der Rover wurde über USB-B mit diesem Computer verbunden und wird von Windows a
 
 ### R3-Board: getrennt prüfen
 
-Die aktuelle Dokumentation beschreibt das Wiederherstellen/Aktualisieren der R3-Kommunikationsfirmware über das offizielle Update-Skript. Sie nennt keinen vergleichbaren LED- oder OTA-Check, der die R3-Version nur ausliest. Deshalb den R3-Stand zunächst als **ungeprüft** notieren und nicht allein aus der ESP32-Anzeige auf ihn schließen.
+Die aktuelle Dokumentation beschreibt das Wiederherstellen/Aktualisieren der R3-Kommunikationsfirmware über das offizielle Update-Skript. Sie nennt keinen vergleichbaren LED- oder OTA-Check, der die R3-Version nur ausliest. Deshalb lässt sich der R3-Stand nicht allein aus der ESP32-Anzeige ableiten. Vor dem Update wurde bestätigt, dass kein eigener Arduino-Code auf das R3-Board geladen worden war.
 
-SunFounder weist darauf hin, dass eigener Arduino-Code die R3-Kommunikationsfirmware überschreibt. Das Update-Skript sollte nur nach Klärung des bisherigen Zustands und anhand der offiziellen Anleitung verwendet werden. Die Dokumentation verlangt bei der Firmware-Aktualisierung die Reihenfolge **ESP32-CAM zuerst, R3 danach**. Bei einer Versionskombination mit solid-orangefarbener Unterbodenbeleuchtung und fehlendem WLAN nennt SunFounder einen speziellen Wiederherstellungsablauf; dann nicht einfach die Reihenfolge ändern.
+SunFounder weist darauf hin, dass eigener Arduino-Code die R3-Kommunikationsfirmware überschreibt. Die Dokumentation verlangt bei der Firmware-Aktualisierung die Reihenfolge **ESP32-CAM zuerst, R3 danach**. Bei einer Versionskombination mit solid-orangefarbener Unterbodenbeleuchtung und fehlendem WLAN nennt SunFounder einen speziellen Wiederherstellungsablauf; dann nicht einfach die Reihenfolge ändern.
 
-**USB-Verbindung erkannt:** Windows zeigt den USB-Seriell-Adapter `USB-SERIAL CH340` auf **COM3**. Das bestätigt, dass der Computer den Adapter erkennt; es liest nicht die installierte R3-Firmware aus und startet keinen Upload.
+**USB-Verbindung und Update:** Windows erkannte den USB-Seriell-Adapter `USB-SERIAL CH340` auf **COM3**. Das offizielle SunFounder-Skript lud am **2026-10-06** erfolgreich `galaxy-rvr.ino.2.0.0.hex` auf das R3-Board. Anschließend wurde der Schalter zurück auf **Run** gestellt. Danach meldete der Nutzer die WLAN-SSID `GalaxyRVR-6959E0`. Das Telefon verbindet sich mit diesem WLAN, `http://192.168.4.1` ist erreichbar und die korrekte **RoboPilot-App** verbindet sich mit dem Rover. Zunächst wurde versehentlich eine andere App verwendet. Die Fahrsteuerung wurde getestet; der Rover reagiert.
 
 ### Geprüfter aktueller Release
 
@@ -46,20 +46,20 @@ Am **2026-10-05** ist der neueste offizielle GitHub-Release `2.0.0-fix2` (veröf
 - ESP32-CAM: `ai-camera-firmware.v1.5.4-ota.bin`
 - R3: `galaxy-rvr.ino.2.0.0.hex`
 
-Die ESP32-CAM-Version 1.5.4 liegt über der in der SunFounder-Anleitung genannten Schwelle 1.5.1. Der Rover meldet 1.4.0; sein ESP32-CAM-Update ist daher erforderlich.
+Die ESP32-CAM-Version 1.5.4 liegt über der in der SunFounder-Anleitung genannten Schwelle 1.5.1. Vor dem Update meldete der Rover Version 1.4.0; das Update auf 1.5.4 wurde am **2026-10-06** erfolgreich durchgeführt.
 
 ### Schritt 2: ESP32-CAM-Update
 
-Das Update wurde noch **nicht** ausgeführt. Siehe [Schritt-für-Schritt-Anleitung](manuals/update_ESP32-cam.md). Das R3-Board wird in diesem Schritt nicht aktualisiert; sein Firmwarestand bleibt separat ungeprüft.
+Das Update wurde am **2026-10-06** erfolgreich abgeschlossen. Siehe [Schritt-für-Schritt-Anleitung](manuals/update_ESP32-cam.md). Das R3-Board wurde in diesem Schritt nicht aktualisiert; das separate R3-Update auf Version 2.0.0 wurde danach ebenfalls erfolgreich durchgeführt.
 
 ### Prüfergebnis
 
-Nach dem Prüfen hier ergänzen:
+Ergebnis nach dem ESP32-CAM-Update:
 
 | Komponente | Beobachtung / angezeigte Version | Ergebnis |
 | --- | --- | --- |
-| ESP32-CAM | OTA-Seite meldet Version **1.4.0**; LED blinkt in anderer Farbe | **Veraltet**; SunFounder empfiehlt ein Update bei Version 1.5.1 oder niedriger |
-| R3-Board | USB-B erkannt als `USB-SERIAL CH340 (COM3)` | Firmwarestand weiterhin ungeprüft |
+| ESP32-CAM | Vorher **1.4.0**, nachher **1.5.4** (OTA-Seite; Screenshot vom 2026-10-06); WLAN-SSID war zunächst `AI Camera-6959E0` | Update erfolgreich |
+| R3-Board | `galaxy-rvr.ino.2.0.0.hex` erfolgreich über `USB-SERIAL CH340 (COM3)` geflasht; danach SSID `GalaxyRVR-6959E0`; OTA-Webseite und RoboPilot-App erreichbar | Flash und Fahrsteuerung mit RoboPilot erfolgreich getestet |
 
 ## Quellen
 
