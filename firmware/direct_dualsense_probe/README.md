@@ -73,4 +73,28 @@ Later on 2026-10-07, repeated attempts to install 0.2.0 through the running 0.1.
 
 A user-authorized diagnostic upload of the same 0.2.0 image used `curl` with a 40 KiB/s limit, browser tabs closed, and no connected controller. It failed after approximately 82.6 seconds with `curl` error 56 (connection reset), HTTP code 000, and 122,880 bytes reported uploaded out of the 1,186,128-byte image plus multipart overhead. No successful OTA response was received. Subsequent `/status` requests timed out, although Windows remained associated with `GalaxyRVR-DualSense` at 99% signal. This reproduces a failure without browser status polling or an active controller connection, but does not prove the reset cause, an ESP32 reboot, or the number of bytes written to flash. No second upload was attempted.
 
+After the user power-cycled the rover, a subsequent upload on 2026-10-07 succeeded using an explicit WLAN source address, no rate limit, and an empty `Expect` header. The server returned HTTP 200, `OTA image accepted. Restarting.`, after 47.27 seconds and 1,186,382 multipart bytes uploaded. Windows disconnected from the AP during restart; reconnecting the existing WLAN profile restored access. `/status` then confirmed `Firmware: 0.2.0-stop-probe`, waiting for R3 initialization, zero stop frames, zero sensor frames, no UART error, and no connected controller. This verifies the version-changing OTA and new application startup, not the root cause of earlier failures or the R3 hardware integration.
+
+### Successfully tested Windows OTA procedure
+
+Close rover browser tabs, leave the controller disconnected, connect to the rover WLAN, and check the current WLAN IPv4 address. The address was `192.168.4.2` in this test; replace it if different. From the repository root, use PowerShell:
+
+```powershell
+curl.exe --noproxy "*" --interface 192.168.4.2 --connect-timeout 5 --max-time 120 -H "Expect:" -i -F "firmware=@firmware\direct_dualsense_probe\dist\galaxyrvr-direct-dualsense-probe-0.2.0-ota.bin" -w "`nHTTP=%{http_code} Uploaded=%{size_upload} Duration=%{time_total}s`n" http://192.168.4.1/update
+```
+
+Require HTTP 200 with the acceptance response. After the automatic restart, reconnect to `GalaxyRVR-DualSense` if Windows disconnected, then verify the actual running version:
+
+```powershell
+curl.exe --noproxy "*" --interface 192.168.4.2 --connect-timeout 5 --max-time 10 -sS http://192.168.4.1/status
+```
+
+Do not automatically retry failed POST requests. A successful transfer alone does not prove the new firmware started. This procedure changed several conditions together and followed a power cycle; it does not establish that the interface binding, removal of throttling, or `Expect` header individually fixed the failure. Browser OTA reliability remains unresolved.
+
+### R3 stop-only hardware result
+
+On 2026-10-07 the user confirmed that the rover was supported with wheels free, Run mode selected, and the R3 reset button pressed. `/status` reported `START acknowledged`, last command `START`, stop frames increasing from 439 to 592, and valid sensor frames increasing from 4,204 to 5,667. Both successful readings showed sensor age 2 ms, no recorded UART error, and the controller disconnected. One intervening HTTP request timed out; the next succeeded without another reset, so web connectivity is not yet demonstrated to be consistently reliable.
+
+The user confirmed that all wheels remained still. This verifies the initialization dialogue, outgoing stop-frame counter, incoming valid sensor traffic, and observed stationary wheels. It does not verify stopping from motion, motor-command acknowledgement, controller handling during R3 traffic, or an independent R3 watchdog.
+
 Do not use `COM3` as an ESP32 upload port: that USB-B connection is the R3 board. OTA cannot recover a firmware that no longer starts its Wi-Fi/web server; a serial ESP32 recovery route remains unverified.
