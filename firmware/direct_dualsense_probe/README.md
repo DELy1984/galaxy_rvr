@@ -1,6 +1,10 @@
 # Direct DualSense probe
 
-This isolated ESP32-CAM sketch advertises a Wi-Fi access point, provides controller telemetry, and accepts application OTA images. The installed, tested `0.2.0-stop-probe` sends **only zero-power motor frames**. The current source builds `0.3.0-timeout-probe`, a locally prepared, explicitly started single-command movement test; it has **not been installed or hardware-tested**. Trigger and button values never generate driving commands.
+This ESP32-CAM sketch provides direct DualSense control, a Wi-Fi status page,
+and application OTA. The installed version is `0.3.0-timeout-probe`; the current
+source builds `0.4.0-direct-drive`, locally tested but **not installed or
+hardware-tested**. Unlike earlier probes, 0.4.0 generates motor commands from
+L2/R2 once the controls have been released to arm. Guarded R3 firmware is required.
 
 ## Build environment
 
@@ -30,14 +34,14 @@ The resulting image is written to `firmware/direct_dualsense_probe/dist/`.
 - Wi-Fi SSID: `GalaxyRVR-DualSense`
 - Wi-Fi password: `12345678`
 - Status page: `http://192.168.4.1`
-- Current source version: `0.3.0-timeout-probe`; installed version: `0.2.0-stop-probe`
+- Current source version: `0.4.0-direct-drive`; installed version: `0.3.0-timeout-probe`
 - Hold **Create + PS** on the DualSense to make it discoverable.
 - The status page reports whether a controller connected and shows raw axes/button data.
 - OTA upload accepts only an application image with a filename ending in `-ota.bin`; a merged factory image is not an OTA image.
 
 ## Stop-only R3 test (0.2.0)
 
-The retained image is `dist/galaxyrvr-direct-dualsense-probe-0.2.0-ota.bin`. Versions 0.1.0 and 0.2.0 have been hardware-tested as recorded below. The current build script instead produces 0.3.0 without overwriting either earlier image.
+The retained image is `dist/galaxyrvr-direct-dualsense-probe-0.2.0-ota.bin`. Versions 0.1.0 and 0.2.0 have been hardware-tested as recorded below. The current build script produces 0.4.0 without overwriting earlier images.
 
 1. Safely raise the wheels, keep people/animals clear, and close RoboPilot.
 2. Upload the 0.2.0 OTA application image through the current probe webpage.
@@ -52,12 +56,13 @@ The transmitted frame is `WSB+` followed by `A0 03 01 01 00 00 A1` and CRLF. Sen
 
 Before OTA writing/restart the probe sends a stop if initialized. The ESP32 alone cannot provide an independent R3 watchdog against its own crash. General controller driving remains disabled until disconnection, stale-input and update behavior are designed and verified.
 
-## Prepared timeout movement test (0.3.0, not installed)
+## Timeout movement test (0.3.0, subsequently installed)
 
 The user approved local preparation only on 2026-10-07. Native tests and the
 ESP32 build passed: 1,182,849 / 1,966,080 program bytes, 106,412 static RAM bytes.
 The output is `dist/galaxyrvr-direct-dualsense-probe-0.3.0-ota.bin`.
-Uploading and starting the movement test require separate approval.
+This section records the original test design; the later phone upload and
+user-reported physical result are recorded below.
 
 The boot behavior remains periodic zero commands after R3 initialization.
 Only an explicit POST to `/timeout-test` with confirmation
@@ -144,6 +149,77 @@ ESP32 Wi-Fi/BT coexistence, power supply, or application scheduling.
 Continuous counters in successful responses argue against a reboot between
 those readings, not against every possible crash. Next useful isolation is a
 read-only comparison from a second Wi-Fi client before further upload attempts.
+
+### Phone upload and physical timeout result (2026-10-07)
+
+The user reported a slow but successful 0.3.0 OTA upload from a phone without
+network errors. A PC GET subsequently confirmed `0.3.0-timeout-probe`,
+START acknowledged, 15,350 valid sensor frames, sensor age 3 ms, and no UART
+error. The user explicitly confirmed that the wheels moved briefly and stopped
+by themselves after approximately half a second, rather than at the 2-second
+fallback. This is a user-observed physical timeout result, not an accurately
+measured stopping time. At the later GET, the test state was idle and the
+timeout-message flag was false, so that response does not contain a preserved
+record of the reported test.
+
+The phone result strengthens the case for a PC/client/link-specific problem,
+but does not prove a timeout setting is responsible. Previous curl POST failures
+were connection resets after 36.81/53.75 seconds, before the configured
+120-second limit; they were not curl's overall timeout error. Read-only TCP
+connections also failed intermittently. Phone OTA is currently the preferred
+observed update route; no Windows networking settings have been changed.
+
+## Direct driving (0.4.0, local build only)
+
+The user selected PC-style **automatic arming after releasing L1/L2/R2**, with
+maximum power 30/100. No Options button is needed. Only a PS5-model gamepad is
+accepted; additional controllers and other device models are disconnected.
+
+- L2 (`brake`) controls the left wheels, R2 (`throttle`) the right wheels.
+  Raw values 0-20 are zero; 20-1020 map linearly to 0-30 with rounding.
+  API values 1021-1023 saturate at 30; out-of-range values stop and disarm.
+- A new L1 press toggles forward/reverse once, including while triggers are
+  held, matching the prior PC behavior. Holding L1 does not toggle repeatedly.
+  Reversing while moving changes the requested sign immediately; first tests
+  should switch direction with released triggers.
+- Boot, controller reconnect, input gap, R3 reset, and safety stops clear
+  arming and reset direction to forward. Fresh reports with L1 released and
+  both triggers <=20 arm at zero; only a subsequent report may request motion.
+- Newly delivered Bluepad32 controller data are consumed only when
+  `BP32.update()` and the selected controller's `hasData()` indicate an update.
+  No new report for **250 ms** stops/disarms. This measures delivery to the
+  application, not the age of a radio packet inside the Bluetooth stack.
+- Initialized R3, sensor age **less than 250 ms**, and no recorded UART error
+  are required. R3 timeout/rearm messages stop, send zero, and skip controller
+  input that loop. R3 parser errors stop and remain visible until R3 reset.
+- A loop gap >=250 ms sends zero and skips that loop's controller report.
+  Motor frames are transmitted every 50 ms, using signed payload bytes and
+  XOR. The installed R3 guard independently expires at 500 ms if packets stop.
+- Starting any OTA upload sends zero and locks driving until reboot, even if
+  the upload fails. `POST /drive-stop` also locks until reboot. The timeout-test
+  start/stop routes are no longer registered in this version.
+- The status page shows arming/reason, direction, requested left/right power,
+  input age, packet counts and R3 timeout/rearm-message counts. These values
+  are requests/counters, not measured wheel speeds or motor acknowledgement.
+
+The webpage avoids overlapping status fetches and pauses polling while its own
+OTA upload runs. This is an improvement for the new page, **not a demonstrated
+fix** for the old installed uploader or the Windows network failures.
+
+Native tests passed for automatic arming, held-trigger blocking, disconnect,
+R3 safety gates, lock state, stale-input boundaries, timer wraparound, L1
+edge toggles with triggers held, and monotonic trigger scaling over 0-1023.
+The existing R3 and timeout-probe regression tests also passed. The ESP32 build
+uses 1,183,761 / 1,966,080 program bytes and 106,412 static RAM bytes.
+Output: `dist/galaxyrvr-direct-dualsense-probe-0.4.0-ota.bin`.
+
+**Not uploaded.** Install only after approval, with the controller off and all
+wheels safely free. Then confirm actual 0.4.0 status and fresh R3 traffic.
+Initial hardware tests must check each side, trigger release, L1 once/held,
+controller disconnect/reconnect with triggers held, and rearming only after
+release. Use the physical power switch for an emergency; unreliable WLAN makes
+the web stop button unsuitable as an emergency stop. This software is not a
+hardware-rated safety system and cannot protect against every R3/hardware fault.
 
 ## Flashing safety
 

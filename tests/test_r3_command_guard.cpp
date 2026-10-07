@@ -1,6 +1,7 @@
 #include "../firmware/r3_command_guard/MotorCommandGuard.h"
 #include "../firmware/r3_command_guard/R3InputParser.h"
 #include "../firmware/direct_dualsense_probe/TimeoutProbe.h"
+#include "../firmware/direct_dualsense_probe/DriveControl.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -157,10 +158,70 @@ static void testIntegration() {
   CHECK(leftMotorPower == 0);
 }
 
+static void testDriveControl() {
+  DriveControl drive;
+  drive.check(0, true, true, false);
+  CHECK(!drive.armed() && drive.left() == 0);
+  CHECK(drive.input(1, 1020, 0, false));
+  CHECK(!drive.armed());
+  CHECK(drive.input(2, 0, 0, true));
+  CHECK(!drive.armed());
+  CHECK(drive.input(3, 0, 0, false));
+  CHECK(drive.armed() && !drive.reverse());
+  CHECK(drive.input(4, 1020, 0, false));
+  CHECK(drive.left() == 30 && drive.right() == 0);
+  CHECK(drive.input(5, 1020, 1020, true));
+  CHECK(drive.reverse() && drive.left() == -30 && drive.right() == -30);
+  CHECK(drive.input(6, 1020, 1020, true));
+  CHECK(drive.reverse());
+  CHECK(drive.input(7, 1020, 1020, false));
+  CHECK(drive.input(8, 1020, 1020, true));
+  CHECK(!drive.reverse() && drive.left() == 30);
+  drive.check(257, true, true, false);
+  CHECK(drive.armed());
+  drive.check(258, true, true, false);
+  CHECK(!drive.armed() && drive.left() == 0 && drive.right() == 0);
+  CHECK(drive.input(259, 1020, 1020, false));
+  CHECK(!drive.armed());
+  CHECK(drive.input(260, 0, 0, false));
+  CHECK(drive.armed() && !drive.reverse());
+  CHECK(drive.input(261, 0, 1020, false));
+  CHECK(drive.left() == 0 && drive.right() == 30);
+  drive.check(262, false, true, false);
+  CHECK(!drive.armed() && drive.right() == 0);
+  CHECK(drive.input(263, 0, 0, false));
+  drive.check(264, true, false, false);
+  CHECK(!drive.armed());
+  CHECK(drive.input(265, 0, 0, false));
+  drive.check(266, true, true, true);
+  CHECK(!drive.armed());
+  CHECK(drive.input(267, -1, 0, false) == false);
+  CHECK(drive.input(268, 0, 1024, false) == false);
+  CHECK(!drive.armed());
+  CHECK(drive.input(269, 0, 0, false));
+  CHECK(drive.input(519, 1020, 1020, false));
+  CHECK(!drive.armed() && drive.left() == 0);
+  CHECK(drive.input(UINT32_MAX - 100, 0, 0, false));
+  drive.check(148, true, true, false);
+  CHECK(drive.armed());
+  drive.check(149, true, true, false);
+  CHECK(!drive.armed());
+  CHECK(DriveControl::power(0) == 0);
+  CHECK(DriveControl::power(20) == 0);
+  CHECK(DriveControl::power(520) == 15);
+  CHECK(DriveControl::power(1020) == 30);
+  CHECK(DriveControl::power(1023) == 30);
+  for (int32_t raw = 0; raw <= 1023; ++raw) {
+    CHECK(DriveControl::power(raw) >= 0 && DriveControl::power(raw) <= 30);
+    if (raw != 0) CHECK(DriveControl::power(raw) >= DriveControl::power(raw - 1));
+  }
+}
+
 int main() {
   testGuard();
   testParser();
   testIntegration();
+  testDriveControl();
   TimeoutProbe probe;
   CHECK(probe.step(10000) == TimeoutProbe::Action::None);
   CHECK(probe.start(10000));
@@ -183,5 +244,5 @@ int main() {
   CHECK(wrapped.start(UINT32_MAX - 50));
   CHECK(wrapped.step(49) == TimeoutProbe::Action::Drive);
   CHECK(wrapped.step(2049) == TimeoutProbe::Action::Stop);
-  puts("PASS: motor guard, UART parser and sketch integration");
+  puts("PASS: R3 guard/parser/integration, timeout probe and direct drive safety");
 }

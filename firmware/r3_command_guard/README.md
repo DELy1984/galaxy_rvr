@@ -2,8 +2,10 @@
 
 This separately versioned build was written to the R3 on 2026-10-07 with
 explicit user approval. Flash verification and post-flash stop-only communication
-passed; physical timeout behavior is not yet verified. The ESP32 remains on the
-tested 0.2.0 stop-only probe. Do not enable driving until hardware tests pass.
+passed. The user subsequently reported wheels stopping by themselves after
+approximately half a second during the 0.3.0 ESP32 test; this is not an exact
+stopping-time measurement. The ESP32 now runs 0.3.0; general direct driving
+0.4.0 is locally prepared but not installed.
 
 ## Agreed behavior
 
@@ -103,3 +105,9 @@ This verifies post-flash communication and observed stationary wheels under
 continuous zero commands. It does not verify timeout behavior or a stop from
 motion. An initial HTTP request still failed before subsequent reads succeeded;
 WLAN reliability remains unresolved.
+
+On 2026-10-07 the user reported installing ESP32 0.3.0 via phone OTA and
+confirmed actual wheel movement followed by a self-stop after approximately
+half a second. A later GET confirmed 0.3.0 but did not preserve that test's
+timeout flag/state. This adds a user-observed stop-from-motion result, not a
+measured maximum stopping latency or proof of all failure scenarios.

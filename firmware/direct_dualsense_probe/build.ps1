@@ -19,6 +19,6 @@ if (-not (Test-Path -LiteralPath $compiledImage)) {
     throw "Expected application image was not created at '$compiledImage'."
 }
 
-$otaImage = Join-Path $distDir 'galaxyrvr-direct-dualsense-probe-0.3.0-ota.bin'
+$otaImage = Join-Path $distDir 'galaxyrvr-direct-dualsense-probe-0.4.0-ota.bin'
 Copy-Item -LiteralPath $compiledImage -Destination $otaImage -Force
 Write-Output "OTA application image: $otaImage"
