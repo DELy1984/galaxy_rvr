@@ -12,6 +12,65 @@ Die nächsten Themen werden Schritt für Schritt ergänzt:
 - **Steuerung**: Befehle und Zuordnung der Controller-Tasten festlegen
 - **Tests**: Verbindung, Fahrverhalten und Sicherheit überprüfen
 
+## Projektplan: PS5-DualSense-Steuerung
+
+### Startansatz: Computer als Vermittler
+
+Zuerst soll ein Windows-Programm die Controller-Eingaben lesen und über das Rover-WLAN an den GalaxyRVR weitergeben:
+
+```text
+PS5-DualSense ──Bluetooth──> Windows-PC ──WLAN──> GalaxyRVR ──> Motoren
+```
+
+Der PC übernimmt zwei gleichzeitige Verbindungen: Bluetooth zum DualSense und WLAN zum Rover (`GalaxyRVR-6959E0`, Standardpasswort `12345678`). Für diese lokale Steuerung wird keine Internetverbindung benötigt. Die vorhandene RoboPilot-Firmware bleibt zunächst installiert; der PC soll dieselbe Steuerungsschnittstelle wie die App verwenden und keine R3-Firmwareänderung erfordern.
+
+**Zwischenschritt am 2026-10-07:** Der DualSense ist zunächst per USB-Kabel mit dem PC verbunden. Windows erkennt ihn als `HID-konformer Gamecontroller` mit Status `OK` (Sony USB-Kennung `VID_054C&PID_0CE6`). Der Nutzer hat die Reaktion von Sticks und Tasten in der Windows-Gamecontroller-Testansicht (`joy.cpl`) erfolgreich geprüft. Pygame erkennt ein `DualSense Wireless Controller`-Gerät mit **6 Achsen und 17 Tasten**. Ein eigener [Eingabe-Tester](tools/read_dualsense.py) zeigt Achsen und Tasten an; er sendet keine Rover-Befehle. Gemessene Triggerachsen: im Ruhezustand **A5 (L2) = -1.00**, **A6 (R2) = -1.00**; L2 halb gedrückt: **A5 = -0.50**; L2 und R2 jeweils ganz gedrückt: **A5/A6 = +1.00**. Beim separaten Drücken blieb die jeweils andere Achse bei -1.00. Damit ist für beide Trigger der vollständige Bereich **-1.00 bis +1.00** bestätigt. Für den ersten Test ersetzt USB die Bluetooth-Verbindung zum PC; Bluetooth und der spätere direkte Controller-Rover-Versuch bleiben geplant.
+
+**Vorläufige Bedienung (bestätigt am 2026-10-07):** Tanksteuerung mit L2 für die linke Radseite und R2 für die rechte Radseite; beide Trigger zusammen fahren geradeaus, ein einzelner Trigger dreht den Rover. Rückwärtsgang und weitere Bedienelemente sind zunächst nicht vorgesehen. `joy.cpl` zeigt L2/R2 als Bedienelemente 7/8; Pygame liest sie als Achsen A5/A6. Beide Triggerachsen laufen von -1.00 (losgelassen) bis +1.00 (ganz gedrückt).
+
+Gewünschte maximale Leistung für den ersten Trigger-Fahrtest: **100 %** (vom Nutzer bestätigt am 2026-10-07). Der [PC-Steuerungsprototyp](tools/control_galaxyrvr.py) setzt diesen Maximalwert um, fragt vor jeder Verbindung durch Eingabe von `DRIVE` ausdrücklich nach, hält die Motoren beim Start auf null, bis beide Trigger losgelassen sind, und sendet beim normalen Beenden einen Null-Leistungsbefehl. Zum Starten: `python tools/control_galaxyrvr.py`. Vorher den PC mit dem Rover-WLAN verbinden, DualSense anschließen, RoboPilot schließen und die Räder des Rovers sicher aufbocken. Die Leistung folgt dem Triggerweg; ganz gedrückt kann 100 % anfordern. Eine kleine 2-%-Trigger-Deadzone filtert Ruhewert-Rauschen. Der Arduino-Motortreiber setzt jeden positiven Befehl intern auf mindestens 28/255 PWM, daher ist die physische Geschwindigkeit nicht exakt linear zum Prozentwert. Bei WLAN-Ausfall kann der firmwareseitige Timeout etwa 3 Sekunden benötigen. Für die ersten Tests Personen und Tiere aus dem Bewegungsbereich halten.
+
+**PC-WLAN-Test am 2026-10-07:** Der Nutzer hat den PC mit `GalaxyRVR-6959E0` verbunden und die Rover-Webseite unter `http://192.168.4.1` erfolgreich geöffnet. Eine zusätzliche HTTP-Abfrage vom PC bestätigte Status **200**. Damit ist die Web-Erreichbarkeit geprüft, noch nicht die WebSocket-Steuerung. Es wurden bei diesem Test keine Fahrbefehle gesendet.
+
+**WebSocket-Verbindungstest am 2026-10-07:** Vom PC aus ist TCP-Port **30102** erreichbar; Port **8765** verweigert die Verbindung. Der WebSocket-Handshake mit `ws://192.168.4.1:30102/` war erfolgreich (Zustand `Open`). Anschließend wurde die Verbindung geschlossen. Es wurden keine Anwendungsdaten oder Motorbefehle gesendet. Das bestätigt den Verbindungsaufbau, noch nicht die Verarbeitung von Steuerbefehlen durch das R3-Board.
+
+**Edge-Rückkanaltest am 2026-10-07:** Der Browser bestätigte einen erfolgreichen Verbindungsaufbau und ein normales Schließen (Code `1000`). Der Rover lieferte zuerst eine JSON-Geräteidentifikation mit `Name` und `Type` jeweils `GalaxyRVR`. Das bestätigt den Rückkanal; binäre Sensorpakete und die Verarbeitung eigener Motorbefehle sind noch nicht am Gerät getestet.
+
+### Steuerprotokoll: Quellcodeprüfung
+
+Quellen: [R3-Firmware 2.0.0-fix2](https://github.com/sunfounder/galaxy-rvr/blob/2.0.0-fix2/galaxy-rvr/galaxy-rvr.ino), [ESP32-CAM-WebSocket-Code v1.5.4](https://github.com/sunfounder/ai-camera-firmware/blob/v1.5.4/src/ws_server.cpp) und [Arduino-Kommunikationsbibliothek](https://github.com/sunfounder/SunFounder_AI_Camera/blob/7ef221853b02ba268d70b17b7fbedf41e5e48ff2/src/SunFounder_AI_Camera.cpp). Die Bibliotheksquelle erklärt den Parser; ihre genaue beim Bau des Release-Images verwendete Version ist noch nicht bestätigt.
+
+- Der ESP32 leitet binäre WebSocket-Nachrichten an das R3 weiter.
+- Der untersuchte Arduino-Parser erwartet `A0 | Nutzdatenlänge | XOR der Nutzdaten | Nutzdaten | A1`. Kein JSON-Motorbefehl und kein zusätzliches `WSB+` im WebSocket-Paket; dieses Präfix fügt der ESP32 intern hinzu.
+- Motor-Nutzdaten sind `01 | links | rechts`. Die R3-Firmware interpretiert die Motorwerte als vorzeichenbehaftete 8-Bit-Werte; der vorgesehene Leistungsbereich ist -100 bis +100.
+- Ein ausschließliches Stopp-Paket ergibt sich daraus als `A0 03 01 01 00 00 A1` (Hex). Noch nicht am Rover getestet.
+- Das Prüfsummenverfahren eingehender Motorpakete nicht ungeprüft auf ausgehende Sensorpakete übertragen: Der Sensorpaket-Aufbau im R3-Code verwendet eine andere XOR-Berechnung.
+
+**Stopp-Verhalten laut Quellen:** Der ESP32-Code v1.5.4 enthält Daten- und Ping/Pong-Timeouts von jeweils 3000 ms. Ein Daten-Timeout meldet intern `APPSTOP`; die Arduino-Bibliothek setzt darauf den Verbindungsstatus auf getrennt. Beim Übergang in den Idle-Zustand stoppt die R3-Firmware die Motoren. Das ist kein garantierter sofortiger Stopp bei Funkabbruch und muss unter kontrollierten Bedingungen am Gerät geprüft werden. Ein PC kann über eine bereits ausgefallene WLAN-Verbindung keinen Stoppbefehl zustellen.
+
+**Stopp-Test am 2026-10-07:** Nach Bestätigung der sicheren Aufstellung mit frei schwebenden Rädern und geschlossener RoboPilot-App wurde ausschließlich `A0 03 01 01 00 00 A1` binär gesendet. Der PC empfing die JSON-Geräteidentifikation und ein vollständiges binäres Sensorpaket (`A0 07 E5 81 FF F6 82 00 83 CB A1`); anschließend wurde die Verbindung geschlossen. Das bestätigt den binären Rückkanal, ist aber keine explizite Motorbefehls-Bestätigung und kein Nachweis des Stopps aus einer Bewegung heraus. Es wurden keine Fahrbefehle gesendet.
+
+**Erster Motortest am 2026-10-07:** Mit freischwebenden Rädern und geschlossener RoboPilot-App wurde der Motorbefehl `A0 03 01 01 0A 0A A1` (beide Seiten Sollwert 10/100 vorwärts) 500 ms gesendet, unmittelbar gefolgt vom Stoppbefehl `A0 03 01 01 00 00 A1`. Beide Räder liefen laut Nutzer kurz vorwärts und stoppten danach. Der PC bestätigte das Senden beider Pakete; die physische Beobachtung kam vom Nutzer. Dies ist ein erfolgreicher erster Hardwaretest mit fester kleiner Sollvorgabe, aber noch kein Test des DualSense-Eingangs oder des Funkabbruch-Timeouts. Die Firmware blieb unverändert.
+
+**PC-Steuerungsprototyp implementiert und erfolgreich getestet:** `tools/control_galaxyrvr.py` liest L2/R2 und sendet Motorframes fortlaufend an den getesteten WebSocket. Am **2026-10-07** bestätigte der Nutzer, dass die DualSense-Steuerung des Rovers über USB zum PC und WLAN zum Rover funktioniert. Die volle Triggerposition kann die vom Nutzer gewählten 100 % anfordern; eine 2-%-Deadzone filtert Ruhewertrauschen. Beim Start wird erst nach expliziter `DRIVE`-Bestätigung verbunden, Nullleistung bleibt aktiv, bis beide Trigger losgelassen sind, und Ctrl+C sendet einen Stopp. Bluetooth-Betrieb und direkte Controller-Rover-Verbindung sind noch nicht getestet. Tests decken Trigger-Skalierung und exakte Motorframes ab.
+
+### Was dafür benötigt wird
+
+- **PS5-DualSense-Controller** und ein **Windows-PC mit Bluetooth** (integriert oder per USB-Bluetooth-Adapter). Auf diesem PC ist `Intel(R) Wireless Bluetooth(R)` aktiv; ein zusätzlicher Adapter ist voraussichtlich nicht nötig.
+- **WLAN am PC**, das mit dem Rover-Access-Point verbunden werden kann. Der PC muss gleichzeitig Bluetooth und WLAN nutzen können.
+- **Steuerprogramm auf dem PC**: liest Gamepad-Achsen/Tasten, wandelt den linken Stick in Links-/Rechts-Motorbefehle um und sendet diese an die Rover-Schnittstelle. Als möglicher einfacher Technik-Stack kommen Python mit SDL/Pygame für den Controller und eine WebSocket-Bibliothek für die Rover-Verbindung infrage; die genaue Wahl treffen wir nach einem Verbindungstest.
+- **Sicherheitslogik**: Neutralstellung/Deadzone für die Sticks, begrenzte Anfangsgeschwindigkeit und explizite Stoppbefehle beim Loslassen, Controller-Abbruch und Beenden, solange WLAN verfügbar ist. Bei WLAN-Abbruch muss ein roverseitiger Timeout greifen; dessen Verzögerung ist separat zu testen. Tests zuerst mit angehobenen Rädern und danach langsam auf freier Fläche.
+- **Ermittlung des Steuerprotokolls**: offizieller Quellcode und Firmware-Version 2.0.0 als Referenz; Adresse, Port und Binärpakete vor dem ersten Fahrbefehl nachvollziehen und testen.
+
+### Geplante Reihenfolge
+
+1. DualSense zunächst per USB unter Windows testen (Geräteerkennung und Achsen-/Tastentest erfolgreich am 2026-10-07); Bluetooth später koppeln und ebenfalls testen.
+2. PC mit `GalaxyRVR-6959E0` verbinden (Webseite und WebSocket-Handshake erfolgreich am 2026-10-07); Befehlsformat der Firmware verifiziert.
+3. Abhängigkeiten mit `python -m pip install -r requirements.txt` installieren und `python tools/read_dualsense.py` ausführen. L2/R2-Achsen-Zuordnung und vollständiger Triggerbereich sind ohne Roverbefehle bestätigt: L2 → A5, R2 → A6; losgelassen = -1.00, ganz gedrückt = +1.00. Pygame-Erkennung: ein DualSense-Gerät, 6 Achsen, 17 Tasten.
+4. [PC-Steuerungsprototyp](tools/control_galaxyrvr.py) mit `python tools/control_galaxyrvr.py` starten: L2 steuert links, R2 rechts, Leistungsmaximum 100 %; Start mit `DRIVE` bestätigen und beide Trigger freigeben, um zu armen. Er sendet periodisch Motorwerte und bei normalem Beenden den Stoppbefehl.
+5. Die integrierte Steuerung zunächst mit angehobenen Rädern testen; bei WLAN-Abbruch kann der firmwareseitige Timeout etwa 3 Sekunden bis zum Stopp benötigen. Danach langsam in einer freien Fläche testen.
+6. **Später separat untersuchen:** direkte Bluetooth-Verbindung DualSense → Rover ohne PC. Das ist nicht Teil des ersten Ansatzes und kann Änderungen an der ESP32-CAM-Firmware oder zusätzliche Bluetooth-Hardware/Software erfordern.
+
 ## Schritt 1: Firmwarestand prüfen
 
 Der Rover wurde über USB-B mit diesem Computer verbunden und wird von Windows als `USB-SERIAL CH340 (COM3)` erkannt. Die Verbindung allein zeigt nicht, welche Firmware-Version installiert ist. Bitte die folgenden Beobachtungen am Gerät erfassen, bevor Firmware aktualisiert oder eigener Code auf das R3-Board geladen wird.
@@ -66,6 +125,9 @@ Ergebnis nach dem ESP32-CAM-Update:
 - [GalaxyRVR-Dokumentation](https://docs.sunfounder.com/projects/galaxy-rvr/en/latest/index.html)
 - [Firmware aktualisieren](https://docs.sunfounder.com/projects/galaxy-rvr/en/latest/update_firmware.html)
 - [FAQ und Fehlerbehebung](https://docs.sunfounder.com/projects/galaxy-rvr/en/latest/faq.html)
+- [SunFounder GalaxyRVR-Steuercode](https://github.com/sunfounder/galaxy-rvr/tree/2.0.0-fix2/galaxy-rvr)
+- [SunFounder AI Camera Arduino-Bibliothek](https://github.com/sunfounder/SunFounder_AI_Camera)
+- [Sony: DualSense per Bluetooth koppeln](https://www.playstation.com/en-gb/support/hardware/pair-dualsense-controller-bluetooth/?country-selector=true)
 - [Offizieller GalaxyRVR-Firmware-Download (jeweils neuester Release)](https://github.com/sunfounder/galaxy-rvr/releases/latest/download/galaxy-rvr.ino.zip)
 - [Geprüfter Release `2.0.0-fix2`](https://github.com/sunfounder/galaxy-rvr/releases/tag/2.0.0-fix2)
 
