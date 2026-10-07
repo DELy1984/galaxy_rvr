@@ -1,3 +1,4 @@
 /misc/
+/firmware/direct_dualsense_probe/dist/
 __pycache__/
 *.py[cod]
