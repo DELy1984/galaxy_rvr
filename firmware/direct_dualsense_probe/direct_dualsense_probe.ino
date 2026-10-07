@@ -7,13 +7,126 @@ namespace {
 
 constexpr char AP_SSID[] = "GalaxyRVR-DualSense";
 constexpr char AP_PASSWORD[] = "12345678";
-constexpr char FIRMWARE_VERSION[] = "0.1.0-probe";
+constexpr char FIRMWARE_VERSION[] = "0.2.0-stop-probe";
+constexpr uint8_t STOP_FRAME[] = {0xA0, 0x03, 0x01, 0x01, 0x00, 0x00, 0xA1};
+constexpr unsigned long STOP_INTERVAL_MS = 100;
 
 WebServer server(80);
 ControllerPtr connectedController = nullptr;
 bool uploadFailed = false;
 bool uploadComplete = false;
 String uploadError;
+String uartLine;
+String uartError;
+String lastR3Command;
+bool awaitingStartAck = false;
+bool r3Initialized = false;
+unsigned long lastStopTime = 0;
+uint32_t stopFramesSent = 0;
+uint32_t sensorFramesReceived = 0;
+unsigned long lastSensorTime = 0;
+uint8_t sensorFrame[32];
+size_t sensorBytes = 0;
+size_t sensorExpected = 0;
+bool readingSensorFrame = false;
+unsigned long lastUartByteTime = 0;
+
+void sendStop() {
+  Serial.print("WSB+");
+  Serial.write(STOP_FRAME, sizeof(STOP_FRAME));
+  Serial.println();
+  ++stopFramesSent;
+  lastStopTime = millis();
+}
+
+void handleR3Line() {
+  int start = uartLine.indexOf("SET+");
+  if (start >= 0) {
+    String command = uartLine.substring(start + 4);
+    lastR3Command = command;
+    if (command == "RESET") {
+      r3Initialized = false;
+      awaitingStartAck = false;
+      uartError = "";
+      // The stock R3 checks this protocol version, not our probe version.
+      Serial.println("[OK] 1.5.4");
+    } else if (command == "START") {
+      Serial.print("[OK] ");
+      Serial.println(WiFi.softAPIP());
+      awaitingStartAck = true;
+    } else if (command == "NAMEGalaxyRVR" || command == "TYPEGalaxyRVR" ||
+               command == "APSSIDGalaxyRVR" || command == "APPSK12345678" ||
+               command == "PORT30102" || command == "LAMP0") {
+      // Preserve the probe AP; acknowledge the known stock R3 defaults only.
+      Serial.println("[OK]");
+    } else {
+      uartError = "Unsupported R3 command: " + command;
+      Serial.println("[ERR] Unsupported command");
+    }
+  } else if (awaitingStartAck && uartLine.endsWith("[OK]")) {
+    awaitingStartAck = false;
+    r3Initialized = true;
+    sendStop();
+  }
+  uartLine = "";
+}
+
+void pollR3() {
+  // UART0 is also the R3 data channel; never write diagnostic logs to it.
+  if ((readingSensorFrame || uartLine.length() > 0) &&
+      millis() - lastUartByteTime > 100) {
+    if (readingSensorFrame) uartError = "Incomplete R3 sensor frame timed out";
+    readingSensorFrame = false;
+    uartLine = "";
+  }
+  size_t budget = 256;
+  while (Serial.available() && budget-- > 0) {
+    uint8_t value = static_cast<uint8_t>(Serial.read());
+    lastUartByteTime = millis();
+    if (readingSensorFrame) {
+      sensorFrame[sensorBytes++] = value;
+      if (sensorBytes == 1 && value != 0xA0) {
+        uartError = "Invalid R3 sensor frame start";
+        readingSensorFrame = false;
+      } else if (sensorBytes == 2) {
+        sensorExpected = static_cast<size_t>(value) + 4;
+        if (sensorExpected != 11) {
+          uartError = "Unexpected R3 sensor frame length";
+          readingSensorFrame = false;
+        }
+      } else if (sensorExpected != 0 && sensorBytes == sensorExpected) {
+        uint8_t checksum = 0;
+        for (size_t i = 0; i < sensorExpected - 1; ++i) {
+          if (i != 2) checksum ^= sensorFrame[i];
+        }
+        if (value == 0xA1 && checksum == sensorFrame[2] &&
+            sensorFrame[3] == 0x81 && sensorFrame[6] == 0x82 &&
+            sensorFrame[8] == 0x83) {
+          ++sensorFramesReceived;
+          lastSensorTime = millis();
+        } else {
+          uartError = "Invalid R3 sensor frame checksum or payload";
+        }
+        readingSensorFrame = false;
+      }
+      continue;
+    }
+    if (value == '\n') {
+      handleR3Line();
+    } else if (value != '\r' && value >= 32 && value <= 126) {
+      uartLine += static_cast<char>(value);
+      if (uartLine.endsWith("WSB+")) {
+        uartLine = "";
+        sensorBytes = 0;
+        sensorExpected = 0;
+        readingSensorFrame = true;
+      } else if (uartLine.length() > 160) {
+        uartError = "R3 text line exceeded 160 bytes";
+        uartLine = "";
+      }
+    }
+  }
+}
 
 const char PAGE[] PROGMEM = R"HTML(
 <!doctype html>
@@ -30,8 +143,9 @@ const char PAGE[] PROGMEM = R"HTML(
 </head>
 <body>
   <h1>GalaxyRVR DualSense setup</h1>
-  <p>Firmware: 0.1.0-probe</p>
-  <p>Controller telemetry only. This firmware does not send motor commands.</p>
+  <p>Firmware: 0.2.0-stop-probe</p>
+  <p>Stop-only UART test. No nonzero motor commands are sent.</p>
+  <p>After installation, reset the R3 in Run mode to start its initialization dialog.</p>
   <h2>Controller</h2>
   <pre id="status">Waiting for status...</pre>
   <h2>Firmware update</h2>
@@ -105,6 +219,14 @@ void onDisconnectedController(ControllerPtr controller) {
 
 void handleStatus() {
   String status = "Firmware: " + String(FIRMWARE_VERSION) + "\n";
+  status += "R3 initialization: " + String(r3Initialized ? "START acknowledged" : "waiting - reset R3 in Run mode") + "\n";
+  status += "Last R3 command: " + lastR3Command + "\n";
+  status += "Stop frames sent: " + String(stopFramesSent) + "\n";
+  status += "Valid R3 sensor frames: " + String(sensorFramesReceived) + "\n";
+  if (sensorFramesReceived > 0) {
+    status += "Last sensor frame age (ms): " + String(millis() - lastSensorTime) + "\n";
+  }
+  status += "UART error (last): " + (uartError.length() ? uartError : String("none")) + "\n";
   ControllerPtr controller = connectedController;
   if (controller == nullptr || !controller->isConnected()) {
     status += "DualSense: not connected";
@@ -129,6 +251,7 @@ void handleUpdateUpload() {
   HTTPUpload &upload = server.upload();
 
   if (upload.status == UPLOAD_FILE_START) {
+    if (r3Initialized) sendStop();
     uploadFailed = false;
     uploadComplete = false;
     uploadError = "";
@@ -172,6 +295,7 @@ void handleUpdateResult() {
   }
 
   server.send(200, "text/plain; charset=utf-8", "OTA image accepted. Restarting.");
+  if (r3Initialized) sendStop();
   delay(750);
   ESP.restart();
 }
@@ -179,6 +303,8 @@ void handleUpdateResult() {
 }  // namespace
 
 void setup() {
+  Serial.begin(115200);
+  uartLine.reserve(164);
   BP32.setup(&onConnectedController, &onDisconnectedController);
   BP32.enableVirtualDevice(false);
 
@@ -198,6 +324,10 @@ void setup() {
 
 void loop() {
   BP32.update();
+  pollR3();
+  if (r3Initialized && millis() - lastStopTime >= STOP_INTERVAL_MS) {
+    sendStop();
+  }
   server.handleClient();
   delay(5);
 }
