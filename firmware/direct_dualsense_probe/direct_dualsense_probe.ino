@@ -8,7 +8,7 @@ namespace {
 
 constexpr char AP_SSID[] = "GalaxyRVR-DualSense";
 constexpr char AP_PASSWORD[] = "12345678";
-constexpr char FIRMWARE_VERSION[] = "0.4.0-direct-drive";
+constexpr char FIRMWARE_VERSION[] = "0.5.0-direct-drive";
 constexpr unsigned long MOTOR_INTERVAL_MS = 50;
 
 WebServer server(80);
@@ -179,8 +179,9 @@ const char PAGE[] PROGMEM = R"HTML(
 </head>
 <body>
   <h1>GalaxyRVR DualSense setup</h1>
-  <p>Firmware: 0.4.0-direct-drive</p>
-  <p>DualSense driving: L2 left, R2 right, L1 toggles direction. Maximum power 30/100.
+  <p>Firmware: 0.5.0-direct-drive</p>
+  <p>DualSense driving: L2 left, R2 right, L1 toggles direction. Proportional power up to 100/100.
+     Full trigger means full motor command. About 2% deadzone; initial tests with light trigger pressure only.
      Guarded R3 firmware required. Release L1 and both triggers to arm automatically.
      Support ALL wheels for initial tests. Keep hands clear and power switch accessible.</p>
   <p>After installation, reset the R3 in Run mode to start its initialization dialog.</p>

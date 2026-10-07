@@ -7,7 +7,7 @@ class DriveControl {
   static constexpr uint32_t INPUT_TIMEOUT_MS = 250;
   static constexpr int32_t TRIGGER_MAX = 1020;
   static constexpr int32_t DEADZONE = 20;
-  static constexpr int8_t MAX_POWER = 30;
+  static constexpr int8_t MAX_POWER = 100;
 
   void stop(const char* reason) {
     armed_ = false;
@@ -57,8 +57,7 @@ class DriveControl {
   static int8_t power(int32_t raw) {
     if (raw <= DEADZONE) return 0;
     if (raw > TRIGGER_MAX) raw = TRIGGER_MAX;
-    return static_cast<int8_t>(((raw - DEADZONE) * MAX_POWER +
-        (TRIGGER_MAX - DEADZONE) / 2) / (TRIGGER_MAX - DEADZONE));
+    return static_cast<int8_t>((raw * MAX_POWER + TRIGGER_MAX / 2) / TRIGGER_MAX);
   }
 
   bool armed() const { return armed_; }

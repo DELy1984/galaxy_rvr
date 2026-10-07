@@ -2,7 +2,7 @@
 
 This ESP32-CAM sketch provides direct DualSense control, a Wi-Fi status page,
 and application OTA. The current
-source builds `0.4.0-direct-drive`. On 2026-10-07 the user confirmed installing
+source builds `0.5.0-direct-drive` (local only). On 2026-10-07 the user confirmed installing
 and successfully testing 0.4.0. Unlike earlier probes, 0.4.0 generates motor commands from
 L2/R2 once the controls have been released to arm. Guarded R3 firmware is required.
 
@@ -34,14 +34,14 @@ The resulting image is written to `firmware/direct_dualsense_probe/dist/`.
 - Wi-Fi SSID: `GalaxyRVR-DualSense`
 - Wi-Fi password: `12345678`
 - Status page: `http://192.168.4.1`
-- Current source and user-reported installed version: `0.4.0-direct-drive`
+- Current source: `0.5.0-direct-drive`; user-reported installed version: `0.4.0-direct-drive`
 - Hold **Create + PS** on the DualSense to make it discoverable.
 - The status page reports whether a controller connected and shows raw axes/button data.
 - OTA upload accepts only an application image with a filename ending in `-ota.bin`; a merged factory image is not an OTA image.
 
 ## Stop-only R3 test (0.2.0)
 
-The retained image is `dist/galaxyrvr-direct-dualsense-probe-0.2.0-ota.bin`. Versions 0.1.0 and 0.2.0 have been hardware-tested as recorded below. The current build script produces 0.4.0 without overwriting earlier images.
+The retained image is `dist/galaxyrvr-direct-dualsense-probe-0.2.0-ota.bin`. Versions 0.1.0 and 0.2.0 have been hardware-tested as recorded below. The current build script produces 0.5.0 without overwriting earlier images.
 
 1. Safely raise the wheels, keep people/animals clear, and close RoboPilot.
 2. Upload the 0.2.0 OTA application image through the current probe webpage.
@@ -230,6 +230,39 @@ not separate verification of every disconnect, stale-input, rearming, OTA-lock,
 or manual-stop scenario. A subsequent PC HTTP GET timed out during connection;
 no live status snapshot was obtained for this report. The network fault is
 not considered resolved by the successful driving result.
+
+## Proportional full-range driving (0.5.0, local only)
+
+The user approved extending the trigger mapping to full motor commands on
+2026-10-07. L2 and R2 now independently map the measured 0-1020 trigger range
+to integer 0-100, rounded to the nearest integer. Raw values 0-20 still produce
+zero; above that deadzone, the raw trigger percentage is used directly, without
+subtracting/rescaling the deadzone. This gives raw 306 -> 30, 510 -> 50,
+765 -> 75, and 1020 -> 100. Values 1021-1023 saturate at 100. The first
+nonzero value above the deadzone is 2/100; command resolution is one percent,
+not all 1021 raw input steps.
+
+Automatic release-to-arm, L1 edge-based direction toggle, 250-ms input/R3
+freshness gates, loop-gap protection, OTA/manual-stop locks, and the R3's
+500-ms command guard remain unchanged. The existing R3 firmware already
+accepts -100 to 100, so no R3 update is required. Motor command percentage
+does not equal measured speed or exact PWM duty: the R3 still applies its
+minimum motor-start PWM mapping, and battery/load affect physical motion.
+
+Native tests passed for exact 30/50/75/100-percent outputs, deadzone,
+all raw values 0-1023 (rounding, saturation, monotonicity and bounds),
+independent partial trigger values in both directions, and existing safety
+regressions. ESP32 compilation passed with 1,183,905 / 1,966,080 program
+bytes and 106,412 static RAM bytes.
+
+Output: `dist/galaxyrvr-direct-dualsense-probe-0.5.0-ota.bin`.
+**Not installed or hardware-tested.** Earlier OTA images remain untouched.
+The page/version now explicitly reports 0.5.0 and full-range power.
+For installation use the previously successful phone route, controller off,
+after approval. Initial tests must have all wheels safely free, with only
+light trigger pressure; full trigger now commands 100 rather than 30.
+Release triggers before direction changes. Keep the physical power switch
+accessible; neither the network nor this software is a hardware emergency stop.
 
 ## Flashing safety
 

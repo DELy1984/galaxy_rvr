@@ -169,14 +169,14 @@ static void testDriveControl() {
   CHECK(drive.input(3, 0, 0, false));
   CHECK(drive.armed() && !drive.reverse());
   CHECK(drive.input(4, 1020, 0, false));
-  CHECK(drive.left() == 30 && drive.right() == 0);
+  CHECK(drive.left() == 100 && drive.right() == 0);
   CHECK(drive.input(5, 1020, 1020, true));
-  CHECK(drive.reverse() && drive.left() == -30 && drive.right() == -30);
+  CHECK(drive.reverse() && drive.left() == -100 && drive.right() == -100);
   CHECK(drive.input(6, 1020, 1020, true));
   CHECK(drive.reverse());
   CHECK(drive.input(7, 1020, 1020, false));
   CHECK(drive.input(8, 1020, 1020, true));
-  CHECK(!drive.reverse() && drive.left() == 30);
+  CHECK(!drive.reverse() && drive.left() == 100);
   drive.check(257, true, true, false);
   CHECK(drive.armed());
   drive.check(258, true, true, false);
@@ -186,7 +186,7 @@ static void testDriveControl() {
   CHECK(drive.input(260, 0, 0, false));
   CHECK(drive.armed() && !drive.reverse());
   CHECK(drive.input(261, 0, 1020, false));
-  CHECK(drive.left() == 0 && drive.right() == 30);
+  CHECK(drive.left() == 0 && drive.right() == 100);
   drive.check(262, false, true, false);
   CHECK(!drive.armed() && drive.right() == 0);
   CHECK(drive.input(263, 0, 0, false));
@@ -208,11 +208,23 @@ static void testDriveControl() {
   CHECK(!drive.armed());
   CHECK(DriveControl::power(0) == 0);
   CHECK(DriveControl::power(20) == 0);
-  CHECK(DriveControl::power(520) == 15);
-  CHECK(DriveControl::power(1020) == 30);
-  CHECK(DriveControl::power(1023) == 30);
+  CHECK(DriveControl::power(21) == 2);
+  CHECK(DriveControl::power(306) == 30);
+  CHECK(DriveControl::power(510) == 50);
+  CHECK(DriveControl::power(765) == 75);
+  CHECK(DriveControl::power(1020) == 100);
+  CHECK(DriveControl::power(1023) == 100);
+  CHECK(drive.input(150, 0, 0, false));
+  CHECK(drive.input(151, 306, 765, false));
+  CHECK(drive.left() == 30 && drive.right() == 75);
+  CHECK(drive.input(152, 306, 765, true));
+  CHECK(drive.left() == -30 && drive.right() == -75);
   for (int32_t raw = 0; raw <= 1023; ++raw) {
-    CHECK(DriveControl::power(raw) >= 0 && DriveControl::power(raw) <= 30);
+    CHECK(DriveControl::power(raw) >= 0 && DriveControl::power(raw) <= 100);
+    if (raw > DriveControl::DEADZONE) {
+      const int32_t clamped = raw > 1020 ? 1020 : raw;
+      CHECK(DriveControl::power(raw) == (clamped * 100 + 510) / 1020);
+    }
     if (raw != 0) CHECK(DriveControl::power(raw) >= DriveControl::power(raw - 1));
   }
 }
