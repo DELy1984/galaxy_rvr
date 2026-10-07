@@ -1,9 +1,9 @@
 # Direct DualSense probe
 
 This ESP32-CAM sketch provides direct DualSense control, a Wi-Fi status page,
-and application OTA. The installed version is `0.3.0-timeout-probe`; the current
-source builds `0.4.0-direct-drive`, locally tested but **not installed or
-hardware-tested**. Unlike earlier probes, 0.4.0 generates motor commands from
+and application OTA. The current
+source builds `0.4.0-direct-drive`. On 2026-10-07 the user confirmed installing
+and successfully testing 0.4.0. Unlike earlier probes, 0.4.0 generates motor commands from
 L2/R2 once the controls have been released to arm. Guarded R3 firmware is required.
 
 ## Build environment
@@ -34,7 +34,7 @@ The resulting image is written to `firmware/direct_dualsense_probe/dist/`.
 - Wi-Fi SSID: `GalaxyRVR-DualSense`
 - Wi-Fi password: `12345678`
 - Status page: `http://192.168.4.1`
-- Current source version: `0.4.0-direct-drive`; installed version: `0.3.0-timeout-probe`
+- Current source and user-reported installed version: `0.4.0-direct-drive`
 - Hold **Create + PS** on the DualSense to make it discoverable.
 - The status page reports whether a controller connected and shows raw axes/button data.
 - OTA upload accepts only an application image with a filename ending in `-ota.bin`; a merged factory image is not an OTA image.
@@ -213,13 +213,23 @@ The existing R3 and timeout-probe regression tests also passed. The ESP32 build
 uses 1,183,761 / 1,966,080 program bytes and 106,412 static RAM bytes.
 Output: `dist/galaxyrvr-direct-dualsense-probe-0.4.0-ota.bin`.
 
-**Not uploaded.** Install only after approval, with the controller off and all
+The user subsequently confirmed installation and successful operation on
+2026-10-07. For future installations, obtain approval with the controller off and all
 wheels safely free. Then confirm actual 0.4.0 status and fresh R3 traffic.
 Initial hardware tests must check each side, trigger release, L1 once/held,
 controller disconnect/reconnect with triggers held, and rearming only after
 release. Use the physical power switch for an emergency; unreliable WLAN makes
 the web stop button unsuitable as an emergency stop. This software is not a
 hardware-rated safety system and cannot protect against every R3/hardware fault.
+
+### User-reported direct driving result (2026-10-07)
+
+The user confirmed that 0.4.0 was flashed and tested on the rover and works
+flawlessly. This records successful direct driving as reported by the user,
+not separate verification of every disconnect, stale-input, rearming, OTA-lock,
+or manual-stop scenario. A subsequent PC HTTP GET timed out during connection;
+no live status snapshot was obtained for this report. The network fault is
+not considered resolved by the successful driving result.
 
 ## Flashing safety
 

@@ -4,8 +4,8 @@ This separately versioned build was written to the R3 on 2026-10-07 with
 explicit user approval. Flash verification and post-flash stop-only communication
 passed. The user subsequently reported wheels stopping by themselves after
 approximately half a second during the 0.3.0 ESP32 test; this is not an exact
-stopping-time measurement. The ESP32 now runs 0.3.0; general direct driving
-0.4.0 is locally prepared but not installed.
+stopping-time measurement. The user subsequently confirmed installing and
+successfully testing ESP32 direct driving 0.4.0 on 2026-10-07.
 
 ## Agreed behavior
 
