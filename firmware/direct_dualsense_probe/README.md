@@ -97,4 +97,22 @@ On 2026-10-07 the user confirmed that the rover was supported with wheels free, 
 
 The user confirmed that all wheels remained still. This verifies the initialization dialogue, outgoing stop-frame counter, incoming valid sensor traffic, and observed stationary wheels. It does not verify stopping from motion, motor-command acknowledgement, controller handling during R3 traffic, or an independent R3 watchdog.
 
+### DualSense and R3 coexistence result
+
+On 2026-10-07, with 0.2.0 and the R3 already initialized, the user connected the DualSense. `/status` simultaneously reported the DualSense model, fresh R3 sensor data, and increasing stop/sensor counters. Holding L2, R2, and L1 together produced Brake 1020, Throttle 1020, and Buttons `0xd0` (the combined `0x40`, `0x80`, and `0x10` masks). At that reading, stop frames were 3,169, valid sensor frames 32,721, sensor age 3 ms, and no UART error was recorded.
+
+After the user switched off the controller without restarting the rover, `/status` reported `DualSense: not connected`, R3 still `START acknowledged`, 3,615 stop frames, 37,508 valid sensor frames, sensor age 2 ms, and no recorded UART error. This confirms connection, combined input, and disconnect detection alongside ongoing R3 traffic in the stop-only firmware. It does not measure disconnect latency or verify stopping from motion, input freshness protection, or an independent R3 watchdog.
+
+Several HTTP reads timed out during this test; later reads succeeded without a reboot. Wi-Fi/web reliability remains an unresolved issue and must not be inferred from the successful Bluetooth/UART readings.
+
+### R3 command-loss protection review
+
+On 2026-10-07 the upstream [R3 sketch at tag 2.0.0-fix2](https://github.com/sunfounder/galaxy-rvr/blob/2.0.0-fix2/galaxy-rvr/galaxy-rvr.ino), its [configuration](https://github.com/sunfounder/galaxy-rvr/blob/2.0.0-fix2/galaxy-rvr/galaxy-rvr.h), and the [camera library at the inspected revision](https://github.com/sunfounder/SunFounder_AI_Camera/blob/7ef221853b02ba268d70b17b7fbedf41e5e48ff2/src/SunFounder_AI_Camera.cpp) were reviewed.
+
+In this source, motor commands store left/right power and APP mode reapplies those stored values. The library sets `ws_connected` when it receives control frames; explicit disconnect, APP_STOP, or camera initialization messages clear it. No elapsed-time check clears it when UART control packets simply stop arriving. The R3 sketch stops on entry to IDLE, but silent ESP32 failure does not itself cause that transition in the inspected source. The AVR watchdog is disabled (`WATCH_DOG 0`); merely enabling it would monitor a stuck R3 loop, not missing ESP32 commands while that loop continues running.
+
+This is a source-level finding, not a measured motor-runaway test or proof that the installed HEX uses exactly this library revision. Do not send nonzero motor commands to test it on the stock firmware.
+
+The user approved local preparation of a separately versioned R3 build with a 500-ms command deadline and a zero-command rearm condition, but no flashing. The [guarded R3 build](../r3_command_guard/README.md) now compiles and passes native guard/parser/integration tests. Only valid motor commands refresh the deadline, expiry clears both stored powers and stops the motors, and stale powers cannot be revived by unrelated traffic. This variant rejects stock non-motor app commands and uses a bounded, validating UART parser. Preserve the official R3 HEX for restoration. R3 flashing uses USB-B/COM3, not the ESP32 OTA route; no guarded R3 firmware has been installed or hardware-tested yet.
+
 Do not use `COM3` as an ESP32 upload port: that USB-B connection is the R3 board. OTA cannot recover a firmware that no longer starts its Wi-Fi/web server; a serial ESP32 recovery route remains unverified.

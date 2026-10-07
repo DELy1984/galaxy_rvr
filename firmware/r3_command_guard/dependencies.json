@@ -1,0 +1,6 @@
+{
+  "core": "arduino:avr@1.8.6",
+  "libraries": ["SoftPWM@1.0.1", "ArduinoJson@6.21.5"],
+  "roverCommit": "e1fc5c8e082599e7f577adad1fb4ce2a1a709131",
+  "cameraCommit": "7ef221853b02ba268d70b17b7fbedf41e5e48ff2"
+}

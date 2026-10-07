@@ -1,4 +1,6 @@
 /misc/
 /firmware/direct_dualsense_probe/dist/
+/firmware/r3_command_guard/.build/
+/firmware/r3_command_guard/dist/
 __pycache__/
 *.py[cod]
