@@ -2,12 +2,13 @@
 #include <Update.h>
 #include <WebServer.h>
 #include <WiFi.h>
+#include "TimeoutProbe.h"
 
 namespace {
 
 constexpr char AP_SSID[] = "GalaxyRVR-DualSense";
 constexpr char AP_PASSWORD[] = "12345678";
-constexpr char FIRMWARE_VERSION[] = "0.2.0-stop-probe";
+constexpr char FIRMWARE_VERSION[] = "0.3.0-timeout-probe";
 constexpr uint8_t STOP_FRAME[] = {0xA0, 0x03, 0x01, 0x01, 0x00, 0x00, 0xA1};
 constexpr unsigned long STOP_INTERVAL_MS = 100;
 
@@ -30,6 +31,26 @@ size_t sensorBytes = 0;
 size_t sensorExpected = 0;
 bool readingSensorFrame = false;
 unsigned long lastUartByteTime = 0;
+TimeoutProbe timeoutProbe;
+bool otaStarted = false;
+String testError;
+bool timeoutObserved = false;
+uint32_t timeoutObservedAfterMs = 0;
+
+bool controllerConnected() {
+  return connectedController != nullptr && connectedController->isConnected();
+}
+
+const char* testState() {
+  switch (timeoutProbe.state()) {
+    case TimeoutProbe::State::Idle: return "idle - manual start required";
+    case TimeoutProbe::State::Preparing: return "preparing zero command";
+    case TimeoutProbe::State::Silent: return "motor packets withheld";
+    case TimeoutProbe::State::Completed: return "completed - physical result unverified";
+    case TimeoutProbe::State::Aborted: return "aborted - result invalid";
+  }
+  return "invalid";
+}
 
 void sendStop() {
   Serial.print("WSB+");
@@ -62,6 +83,12 @@ void handleR3Line() {
     } else {
       uartError = "Unsupported R3 command: " + command;
       Serial.println("[ERR] Unsupported command");
+    }
+  } else if (uartLine == "[R3] Motor command timeout; zero required" &&
+             timeoutProbe.state() == TimeoutProbe::State::Silent) {
+    if (!timeoutObserved) {
+      timeoutObserved = true;
+      timeoutObservedAfterMs = millis() - timeoutProbe.driveTime();
     }
   } else if (awaitingStartAck && uartLine.endsWith("[OK]")) {
     awaitingStartAck = false;
@@ -143,9 +170,19 @@ const char PAGE[] PROGMEM = R"HTML(
 </head>
 <body>
   <h1>GalaxyRVR DualSense setup</h1>
-  <p>Firmware: 0.2.0-stop-probe</p>
-  <p>Stop-only UART test. No nonzero motor commands are sent.</p>
+  <p>Firmware: 0.3.0-timeout-probe</p>
+  <p>Manual timeout test: one motor command at 30/100, then 2 seconds without motor packets.
+     Guarded R3 firmware required. Support the rover with ALL wheels free; keep hands clear.
+     Turn off DualSense. No automatic movement on boot.</p>
   <p>After installation, reset the R3 in Run mode to start its initialization dialog.</p>
+  <h2>Timeout test (one attempt per boot)</h2>
+  <form method="post" action="/timeout-test">
+    <label><input type="checkbox" name="confirm" value="wheels-free-guarded-r3" required>
+      Guarded R3 installed, wheels free, power switch accessible.</label>
+    <button type="submit">Start limited movement test</button>
+  </form>
+  <form method="post" action="/test-stop"><button type="submit">Send stop / abort test</button></form>
+  <p>The web stop button is not a reliable emergency stop. Use the physical power switch if needed.</p>
   <h2>Controller</h2>
   <pre id="status">Waiting for status...</pre>
   <h2>Firmware update</h2>
@@ -227,6 +264,13 @@ void handleStatus() {
     status += "Last sensor frame age (ms): " + String(millis() - lastSensorTime) + "\n";
   }
   status += "UART error (last): " + (uartError.length() ? uartError : String("none")) + "\n";
+  status += "Timeout test: " + String(testState()) + "\n";
+  status += "Test error: " + (testError.length() ? testError : String("none")) + "\n";
+  status += "R3 timeout message observed: " + String(timeoutObserved ? "yes" : "no") + "\n";
+  if (timeoutObserved) {
+    status += "Timeout message receive delay (ms, not physical stop time): " +
+        String(timeoutObservedAfterMs) + "\n";
+  }
   ControllerPtr controller = connectedController;
   if (controller == nullptr || !controller->isConnected()) {
     status += "DualSense: not connected";
@@ -251,6 +295,9 @@ void handleUpdateUpload() {
   HTTPUpload &upload = server.upload();
 
   if (upload.status == UPLOAD_FILE_START) {
+    otaStarted = true;
+    timeoutProbe.abort();
+    testError = "OTA started; movement test disabled until reboot";
     if (r3Initialized) sendStop();
     uploadFailed = false;
     uploadComplete = false;
@@ -300,6 +347,49 @@ void handleUpdateResult() {
   ESP.restart();
 }
 
+void handleTimeoutTest() {
+  if (server.arg("confirm") != "wheels-free-guarded-r3") {
+    server.send(400, "text/plain", "Explicit guarded-R3 / wheels-free confirmation required.");
+    return;
+  }
+  if (otaStarted || timeoutProbe.state() != TimeoutProbe::State::Idle ||
+      !r3Initialized || sensorFramesReceived == 0 ||
+      millis() - lastSensorTime >= 500 || controllerConnected() ||
+      uartError.length() != 0) {
+    server.send(409, "text/plain", "Test blocked: require unused test, no OTA, fresh R3 telemetry, no UART error and disconnected controller.");
+    return;
+  }
+  if (!timeoutProbe.start(millis())) {
+    server.send(409, "text/plain", "Test already used this boot.");
+    return;
+  }
+  sendStop();
+  server.send(202, "text/plain", "Test scheduled once. Observe wheels and /status. Use physical power switch if wheels keep moving.");
+}
+
+void pollTimeoutTest() {
+  if (timeoutProbe.active() &&
+      (!r3Initialized || controllerConnected() ||
+       millis() - lastSensorTime >= 500 || uartError.length() != 0)) {
+    timeoutProbe.abort();
+    testError = "Aborted: initialization, controller, sensor freshness or UART condition changed";
+    sendStop();
+    return;
+  }
+  const TimeoutProbe::Action action = timeoutProbe.step(millis());
+  if (action == TimeoutProbe::Action::Drive) {
+    constexpr uint8_t frame[] = {0xA0, 0x03, 0x01, 0x01, 30, 30, 0xA1};
+    Serial.print("WSB+");
+    Serial.write(frame, sizeof(frame));
+    Serial.println();
+  } else if (action == TimeoutProbe::Action::Stop) {
+    if (timeoutProbe.state() == TimeoutProbe::State::Aborted) {
+      testError = "Loop delayed before movement; test aborted";
+    }
+    sendStop();
+  }
+}
+
 }  // namespace
 
 void setup() {
@@ -315,6 +405,13 @@ void setup() {
     });
     server.on("/status", HTTP_GET, handleStatus);
     server.on("/update", HTTP_POST, handleUpdateResult, handleUpdateUpload);
+    server.on("/timeout-test", HTTP_POST, handleTimeoutTest);
+    server.on("/test-stop", HTTP_POST, []() {
+      timeoutProbe.abort();
+      testError = "Manual stop; test disabled until reboot";
+      if (r3Initialized) sendStop();
+      server.send(200, "text/plain", "Stop sent if R3 initialized. Test aborted.");
+    });
     server.onNotFound([]() {
       server.send(404, "text/plain; charset=utf-8", "Not found.");
     });
@@ -325,7 +422,9 @@ void setup() {
 void loop() {
   BP32.update();
   pollR3();
-  if (r3Initialized && millis() - lastStopTime >= STOP_INTERVAL_MS) {
+  pollTimeoutTest();
+  if (r3Initialized && !timeoutProbe.active() &&
+      millis() - lastStopTime >= STOP_INTERVAL_MS) {
     sendStop();
   }
   server.handleClient();

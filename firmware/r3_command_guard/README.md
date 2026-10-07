@@ -1,8 +1,9 @@
 # R3 command-age guard (local preparation only)
 
-This separately versioned build is **not installed on the rover**. The R3 still
-runs the official 2.0.0 HEX, while the ESP32 runs the tested 0.2.0 stop-only probe.
-Do not enable driving until the guarded R3 has been installed and hardware-tested.
+This separately versioned build was written to the R3 on 2026-10-07 with
+explicit user approval. Flash verification and post-flash stop-only communication
+passed; physical timeout behavior is not yet verified. The ESP32 remains on the
+tested 0.2.0 stop-only probe. Do not enable driving until hardware tests pass.
 
 ## Agreed behavior
 
@@ -70,8 +71,7 @@ Neither script uploads firmware or opens COM3.
 
 ## Validation and next hardware gate
 
-Local compilation and native tests passed on 2026-10-07. Hardware has not been
-changed or tested with this build. The AVR build uses 13,754 of 32,256 flash
+Local compilation and native tests passed on 2026-10-07. The AVR build uses 13,754 of 32,256 flash
 bytes and 1,169 of 2,048 static RAM bytes (879 bytes remain for stack/locals).
 This memory report is not a runtime stack-usage test. The original restore image remains
 `misc\galaxy-rvr.ino\output\galaxy-rvr.ino.2.0.0.hex`; USB-B/COM3 is the R3
@@ -83,3 +83,23 @@ Then verify rejection of nonzero commands before zero rearming and measured
 stopping after missing commands on a safely supported rover, using a separately
 approved test setup. Do not treat native tests or stationary wheels under
 continuous zero packets as proof of a physical stop from motion.
+
+### Flash record (2026-10-07)
+
+The user connected USB-B, selected Upload, and explicitly authorized flashing.
+CH340 was detected on COM3; avrdude read ATmega328P signature `0x1e950f`,
+wrote 13,754 bytes, and verified all 13,754 bytes. The image SHA256 was
+`5DC0CD3C3F9A4F22CBE4679CBDB374A2D873312ADD7A396C7960009C2EF9300C`.
+No bootloader or fuse update was requested.
+
+The user then selected Run and pressed R3 reset. Initial HTTP checks could not
+reach the ESP32 while the PC was disconnected from the rover WLAN. The user
+reported that the rover had been off and then switched it on. After another
+requested connection attempt, `/status` reported `START acknowledged`.
+Stop counters increased from 1,944 to 2,014 and valid sensor counters from
+24,630 to 25,492, with sensor ages 9 ms and 2 ms, no recorded UART error, and
+the controller disconnected. The user confirmed that all wheels remained still.
+This verifies post-flash communication and observed stationary wheels under
+continuous zero commands. It does not verify timeout behavior or a stop from
+motion. An initial HTTP request still failed before subsequent reads succeeded;
+WLAN reliability remains unresolved.

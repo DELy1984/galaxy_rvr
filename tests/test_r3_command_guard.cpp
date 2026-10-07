@@ -1,5 +1,6 @@
 #include "../firmware/r3_command_guard/MotorCommandGuard.h"
 #include "../firmware/r3_command_guard/R3InputParser.h"
+#include "../firmware/direct_dualsense_probe/TimeoutProbe.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -160,5 +161,27 @@ int main() {
   testGuard();
   testParser();
   testIntegration();
+  TimeoutProbe probe;
+  CHECK(probe.step(10000) == TimeoutProbe::Action::None);
+  CHECK(probe.start(10000));
+  CHECK(!probe.start(10001));
+  CHECK(probe.step(10099) == TimeoutProbe::Action::None);
+  CHECK(probe.step(10100) == TimeoutProbe::Action::Drive);
+  CHECK(probe.step(12099) == TimeoutProbe::Action::None);
+  CHECK(probe.step(12100) == TimeoutProbe::Action::Stop);
+  CHECK(!probe.active() && !probe.start(12101));
+  CHECK(probe.step(12102) == TimeoutProbe::Action::None);
+  TimeoutProbe delayed;
+  CHECK(delayed.start(0));
+  CHECK(delayed.step(500) == TimeoutProbe::Action::Stop);
+  CHECK(delayed.state() == TimeoutProbe::State::Aborted);
+  TimeoutProbe cancelled;
+  cancelled.abort();
+  CHECK(!cancelled.start(0));
+  CHECK(cancelled.step(1000) == TimeoutProbe::Action::None);
+  TimeoutProbe wrapped;
+  CHECK(wrapped.start(UINT32_MAX - 50));
+  CHECK(wrapped.step(49) == TimeoutProbe::Action::Drive);
+  CHECK(wrapped.step(2049) == TimeoutProbe::Action::Stop);
   puts("PASS: motor guard, UART parser and sketch integration");
 }

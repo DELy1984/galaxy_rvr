@@ -1,6 +1,6 @@
 # Direct DualSense probe
 
-This isolated ESP32-CAM sketch advertises a Wi-Fi access point, provides controller telemetry, and accepts application OTA images. Version `0.2.0-stop-probe` adds the stock R3 initialization dialog and sends **only zero-power motor frames**. Trigger and button values never generate driving commands.
+This isolated ESP32-CAM sketch advertises a Wi-Fi access point, provides controller telemetry, and accepts application OTA images. The installed, tested `0.2.0-stop-probe` sends **only zero-power motor frames**. The current source builds `0.3.0-timeout-probe`, a locally prepared, explicitly started single-command movement test; it has **not been installed or hardware-tested**. Trigger and button values never generate driving commands.
 
 ## Build environment
 
@@ -30,14 +30,14 @@ The resulting image is written to `firmware/direct_dualsense_probe/dist/`.
 - Wi-Fi SSID: `GalaxyRVR-DualSense`
 - Wi-Fi password: `12345678`
 - Status page: `http://192.168.4.1`
-- Firmware version: `0.2.0-stop-probe`
+- Current source version: `0.3.0-timeout-probe`; installed version: `0.2.0-stop-probe`
 - Hold **Create + PS** on the DualSense to make it discoverable.
 - The status page reports whether a controller connected and shows raw axes/button data.
 - OTA upload accepts only an application image with a filename ending in `-ota.bin`; a merged factory image is not an OTA image.
 
 ## Stop-only R3 test (0.2.0)
 
-The build produces `dist/galaxyrvr-direct-dualsense-probe-0.2.0-ota.bin`. Version 0.1.0 remains a previously tested telemetry-only image; 0.2.0 has not yet been hardware-tested.
+The retained image is `dist/galaxyrvr-direct-dualsense-probe-0.2.0-ota.bin`. Versions 0.1.0 and 0.2.0 have been hardware-tested as recorded below. The current build script instead produces 0.3.0 without overwriting either earlier image.
 
 1. Safely raise the wheels, keep people/animals clear, and close RoboPilot.
 2. Upload the 0.2.0 OTA application image through the current probe webpage.
@@ -50,7 +50,100 @@ UART0 runs at 115200 baud. The probe answers only the known stock initialization
 
 The transmitted frame is `WSB+` followed by `A0 03 01 01 00 00 A1` and CRLF. Sensor frames use the stock R3's separate checksum convention, checked with the expected sensor entity IDs. A stop-send count proves transmission only. Valid sensor frames are evidence of R3 return traffic, not a motor-position or physical-stop acknowledgement. Initialization status is historical; sensor age helps detect stale return traffic.
 
-Before OTA writing/restart the probe sends a stop if initialized. This does not provide an independent R3 watchdog against a crashed ESP32. Driving remains disabled until disconnection, stale-input and update behavior are designed and verified.
+Before OTA writing/restart the probe sends a stop if initialized. The ESP32 alone cannot provide an independent R3 watchdog against its own crash. General controller driving remains disabled until disconnection, stale-input and update behavior are designed and verified.
+
+## Prepared timeout movement test (0.3.0, not installed)
+
+The user approved local preparation only on 2026-10-07. Native tests and the
+ESP32 build passed: 1,182,849 / 1,966,080 program bytes, 106,412 static RAM bytes.
+The output is `dist/galaxyrvr-direct-dualsense-probe-0.3.0-ota.bin`.
+Uploading and starting the movement test require separate approval.
+
+The boot behavior remains periodic zero commands after R3 initialization.
+Only an explicit POST to `/timeout-test` with confirmation
+`confirm=wheels-free-guarded-r3` schedules a test. The page provides a confirmation
+checkbox and start button. It requires an unused test this boot, disconnected
+controller, fresh sensor traffic (age less than 500 ms), no recorded UART error,
+and no OTA attempt. The confirmation is an operator assertion, not automatic
+detection of the R3 firmware or physically supported wheels.
+
+1. Keep the rover safely supported with ALL wheels free, hands/people/animals
+   clear, and the physical power switch accessible. Guarded R3
+   `2.0.0-direct-guard.1` must be installed. Turn the DualSense off.
+2. After an approved OTA installation and R3 initialization, verify version,
+   fresh sensor traffic, stationary wheels, and no UART error.
+3. Only after separate permission, manually start the test once. The ESP32
+   sends zero, waits at least 100 ms, sends exactly one forward motor packet
+   `A0 03 01 01 1E 1E A1` (30/100 on both sides), then withholds motor
+   packets for 2 seconds. **No continued movement packets are sent.**
+4. The R3 should expire its command after 500 ms plus loop/driver latency.
+   The ESP32 observes the R3 timeout text, if received, and reports its receive
+   delay. This is **not a measurement of physical wheel stopping time**.
+   Video is needed to measure wheel motion; a timeout message alone is
+   insufficient, and no motion means the stop-from-motion test is inconclusive.
+5. After the silent period, the ESP32 resumes zero packets as a fallback.
+   Controller connection, stale telemetry, UART errors, or lost initialization
+   abort the test and send zero; this invalidates the timeout result.
+   A preparation delay of 500 ms or more aborts without sending movement.
+
+The attempt is consumed even if aborted; repeat requests cannot extend or
+restart it. Completion/abort cannot start another test until an explicit
+ESP32 reboot, which itself never starts movement. `/test-stop` is a manual POST
+that aborts and sends zero. Any OTA attempt aborts and disables tests until reboot.
+
+The two-second fallback is loop-driven, **not guaranteed if the ESP32 hangs or
+blocks in HTTP handling**. The web button is not an emergency stop. If wheels
+continue moving, use the physical power switch immediately; do not wait for
+network access. General DualSense driving remains disabled in 0.3.0.
+
+### 0.3.0 upload attempts (2026-10-07)
+
+The user authorized installing 0.3.0, but not starting the movement test.
+The first curl upload failed with error 56 / HTTP 000 after 36.81 seconds and
+327,481 uploaded multipart bytes. Status requests then timed out. After a
+user-performed power cycle, `/status` confirmed 0.2.0 still running with R3
+initialized, fresh sensors, and no controller connection.
+
+The user closed browser tabs and separately approved one further attempt.
+That upload also failed with error 56 / HTTP 000 after 53.75 seconds and
+786,233 uploaded multipart bytes. Neither transfer received an acceptance
+response or transmitted the complete image. No movement test was started.
+0.3.0 installation is not verified; the last confirmed running version is
+0.2.0. The previously successful curl procedure is therefore not a reliable
+fix for the intermittent OTA failure. No third attempt was made.
+
+### Read-only network checks after reboot (2026-10-07)
+
+No upload or movement test was performed in this check. Windows was associated
+with the rover AP at 99% signal, IPv4 `192.168.4.2`, with a direct
+`192.168.4.0/24` WLAN route and a reachable ARP neighbor.
+The initial HTTP GET returned curl error 52 (empty reply).
+Six subsequent interface-bound `/status` reads produced four HTTP 200 replies
+and two TCP connect timeouts (3-second connection deadline). Successful replies
+confirmed 0.2.0, START acknowledged, disconnected controller, no recorded UART
+error, sensor age 2 ms, and stop/sensor counters increasing from 959/10,023
+to 1,139/11,907 without resetting.
+
+The user closed browser tabs and temporarily selected Upload without reset
+or flashing. Five of six further TCP connections timed out; one succeeded,
+showing counters 2,231/23,546 and fresh sensor age 8 ms. Thus this switch-only
+test did **not demonstrate isolation of UART sensor traffic** and cannot
+establish whether UART load causes the network issue. Separate .NET ICMP
+probes returned two successes (21 and 88 ms) and two timeouts out of four.
+The user restored Run afterward.
+
+Windows `Test-Connection` itself failed with a local resource error; the
+alternative .NET probes above were used instead. Reading adapter power settings
+also failed with Windows error 31, so no conclusion about power-save settings
+was reached and no settings were changed. Native guard/parser/probe tests still
+passed, and `git diff --check` was clean.
+
+These small samples show intermittent connectivity even without OTA flash
+writes or a connected gamepad. They do not locate the fault in Windows, RF,
+ESP32 Wi-Fi/BT coexistence, power supply, or application scheduling.
+Continuous counters in successful responses argue against a reboot between
+those readings, not against every possible crash. Next useful isolation is a
+read-only comparison from a second Wi-Fi client before further upload attempts.
 
 ## Flashing safety
 
@@ -113,6 +206,6 @@ In this source, motor commands store left/right power and APP mode reapplies tho
 
 This is a source-level finding, not a measured motor-runaway test or proof that the installed HEX uses exactly this library revision. Do not send nonzero motor commands to test it on the stock firmware.
 
-The user approved local preparation of a separately versioned R3 build with a 500-ms command deadline and a zero-command rearm condition, but no flashing. The [guarded R3 build](../r3_command_guard/README.md) now compiles and passes native guard/parser/integration tests. Only valid motor commands refresh the deadline, expiry clears both stored powers and stops the motors, and stale powers cannot be revived by unrelated traffic. This variant rejects stock non-motor app commands and uses a bounded, validating UART parser. Preserve the official R3 HEX for restoration. R3 flashing uses USB-B/COM3, not the ESP32 OTA route; no guarded R3 firmware has been installed or hardware-tested yet.
+The user initially approved local preparation of a separately versioned R3 build with a 500-ms command deadline and a zero-command rearm condition. The [guarded R3 build](../r3_command_guard/README.md) compiles and passes native guard/parser/integration tests. Only valid motor commands refresh the deadline, expiry clears both stored powers and stops the motors, and stale powers cannot be revived by unrelated traffic. This variant rejects stock non-motor app commands and uses a bounded, validating UART parser. Preserve the official R3 HEX for restoration. After separate approval on 2026-10-07, it was flashed via USB-B/COM3 and all 13,754 bytes verified. Following WLAN reconnection, START acknowledgement and increasing stop/sensor counters were confirmed; the user reported stationary wheels. Hardware timeout and stopping-from-motion tests remain pending. ESP32 0.2.0 remains unchanged.
 
 Do not use `COM3` as an ESP32 upload port: that USB-B connection is the R3 board. OTA cannot recover a firmware that no longer starts its Wi-Fi/web server; a serial ESP32 recovery route remains unverified.
