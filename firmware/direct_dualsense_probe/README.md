@@ -1,10 +1,10 @@
 # Direct DualSense probe
 
 This ESP32-CAM sketch provides direct DualSense control, a Wi-Fi status page,
-and application OTA. The current
-source builds `0.5.0-direct-drive` (local only). On 2026-10-07 the user confirmed installing
-and successfully testing 0.4.0. Unlike earlier probes, 0.4.0 generates motor commands from
-L2/R2 once the controls have been released to arm. Guarded R3 firmware is required.
+and application OTA. The current source builds `0.6.0-direct-drive` (local only).
+The user confirmed successful operation of 0.5.0. Version 0.6.0 adds left-stick
+control and Cross-button camera light to the existing triggers.
+Guarded R3 firmware is required.
 
 ## Build environment
 
@@ -34,14 +34,14 @@ The resulting image is written to `firmware/direct_dualsense_probe/dist/`.
 - Wi-Fi SSID: `GalaxyRVR-DualSense`
 - Wi-Fi password: `12345678`
 - Status page: `http://192.168.4.1`
-- Current source: `0.5.0-direct-drive`; user-reported installed version: `0.4.0-direct-drive`
+- Current source: `0.6.0-direct-drive`; user-reported installed version: `0.5.0-direct-drive`
 - Hold **Create + PS** on the DualSense to make it discoverable.
 - The status page reports whether a controller connected and shows raw axes/button data.
 - OTA upload accepts only an application image with a filename ending in `-ota.bin`; a merged factory image is not an OTA image.
 
 ## Stop-only R3 test (0.2.0)
 
-The retained image is `dist/galaxyrvr-direct-dualsense-probe-0.2.0-ota.bin`. Versions 0.1.0 and 0.2.0 have been hardware-tested as recorded below. The current build script produces 0.5.0 without overwriting earlier images.
+The retained image is `dist/galaxyrvr-direct-dualsense-probe-0.2.0-ota.bin`. Versions 0.1.0 and 0.2.0 have been hardware-tested as recorded below. The current build script produces 0.6.0 without overwriting earlier images.
 
 1. Safely raise the wheels, keep people/animals clear, and close RoboPilot.
 2. Upload the 0.2.0 OTA application image through the current probe webpage.
@@ -263,6 +263,45 @@ after approval. Initial tests must have all wheels safely free, with only
 light trigger pressure; full trigger now commands 100 rather than 30.
 Release triggers before direction changes. Keep the physical power switch
 accessible; neither the network nor this software is a hardware emergency stop.
+
+## Left stick and camera light (0.6.0, local only)
+
+On 2026-10-07 the user confirmed 0.5.0 works as intended and requested stick
+control alongside L2/R2, with **stick priority outside center**.
+
+- Each stick axis has a deadzone of +/-40 raw units (about 8% of 512).
+  Beyond it, the remaining axis range scales to +/-100. Forward is negative
+  Y; positive X steers right. Left/right commands are forward+turn and
+  forward-turn; if either exceeds 100, both are scaled by the same factor.
+  Sideways alone rotates in place; full forward/right gives 100/0.
+- Any axis outside the deadzone selects the stick, even if rounding produces
+  zero. Centering returns immediately to trigger commands, **including held
+  triggers**. Release triggers before returning the stick to center if a stop
+  is intended.
+- Stick forward/reverse ignores the L1 direction state. L1 still toggles the
+  trigger direction, even while using the stick. Status shows selected source;
+  the direction field is the trigger direction.
+- Arming requires centered stick, released L1 and both triggers. Existing
+  freshness, timeout, OTA and manual-stop protection remains.
+- PlayStation **Cross (X)** is Bluepad32's `a()`/south button, not its `x()`
+  west/Square button. A released-to-pressed edge toggles the lamp; holding it
+  does not repeat. A held Cross on connection/reset must first be released.
+- Camera lamp is GPIO4, confirmed in SunFounder's
+  [pins.h](https://github.com/sunfounder/ai-camera-firmware/blob/v1.5.4/include/pins.h).
+  Digital HIGH turns it on, LOW off, without starting camera streaming.
+  Boot, controller connection/disconnection, stale input, loop gap, R3 reset,
+  OTA and manual-stop lock turn it off. `SET+LAMP0` also physically turns it off.
+  No R3 firmware update is needed. Lamp status reflects commanded GPIO state,
+  not measured illumination. Full lamp output can increase power consumption
+  and heating; keep initial tests brief.
+
+Native tests cover cardinal/diagonal mixing, bounds over an axis grid, stick
+priority with triggers held, return to triggers, direction independence,
+center-to-arm, invalid axes, stale input and light edge/reset behavior.
+0.6.0 is locally compiled but **not uploaded or hardware-tested**.
+Output: `dist/galaxyrvr-direct-dualsense-probe-0.6.0-ota.bin`.
+First test with wheels free and light stick movements; verify steering sign,
+Cross versus Square and actual lamp on/off before using on the ground.
 
 ## Flashing safety
 

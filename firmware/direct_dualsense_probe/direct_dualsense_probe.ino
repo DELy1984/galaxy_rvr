@@ -3,12 +3,14 @@
 #include <WebServer.h>
 #include <WiFi.h>
 #include "DriveControl.h"
+#include "LightToggle.h"
 
 namespace {
 
 constexpr char AP_SSID[] = "GalaxyRVR-DualSense";
 constexpr char AP_PASSWORD[] = "12345678";
-constexpr char FIRMWARE_VERSION[] = "0.5.0-direct-drive";
+constexpr char FIRMWARE_VERSION[] = "0.6.0-direct-drive";
+constexpr uint8_t CAMERA_LAMP_PIN = 4;
 constexpr unsigned long MOTOR_INTERVAL_MS = 50;
 
 WebServer server(80);
@@ -31,6 +33,7 @@ size_t sensorExpected = 0;
 bool readingSensorFrame = false;
 unsigned long lastUartByteTime = 0;
 DriveControl driveControl;
+LightToggle cameraLight;
 bool otaStarted = false;
 bool manualStop = false;
 bool r3TimeoutThisLoop = false;
@@ -38,6 +41,11 @@ uint32_t r3Timeouts = 0;
 uint32_t motorFramesSent = 0;
 uint32_t lastLoopTime = 0;
 bool loopStarted = false;
+
+void lightOff() {
+  cameraLight.reset();
+  digitalWrite(CAMERA_LAMP_PIN, LOW);
+}
 
 bool controllerConnected() {
   return connectedController != nullptr && connectedController->isConnected();
@@ -69,6 +77,7 @@ void handleR3Line() {
     lastR3Command = command;
     if (command == "RESET") {
       driveControl.stop("R3 reset");
+      lightOff();
       r3Initialized = false;
       awaitingStartAck = false;
       uartError = "";
@@ -80,8 +89,11 @@ void handleR3Line() {
       awaitingStartAck = true;
     } else if (command == "NAMEGalaxyRVR" || command == "TYPEGalaxyRVR" ||
                command == "APSSIDGalaxyRVR" || command == "APPSK12345678" ||
-               command == "PORT30102" || command == "LAMP0") {
+               command == "PORT30102") {
       // Preserve the probe AP; acknowledge the known stock R3 defaults only.
+      Serial.println("[OK]");
+    } else if (command == "LAMP0") {
+      lightOff();
       Serial.println("[OK]");
     } else {
       uartError = "Unsupported R3 command: " + command;
@@ -179,10 +191,12 @@ const char PAGE[] PROGMEM = R"HTML(
 </head>
 <body>
   <h1>GalaxyRVR DualSense setup</h1>
-  <p>Firmware: 0.5.0-direct-drive</p>
+  <p>Firmware: 0.6.0-direct-drive</p>
   <p>DualSense driving: L2 left, R2 right, L1 toggles direction. Proportional power up to 100/100.
      Full trigger means full motor command. About 2% deadzone; initial tests with light trigger pressure only.
      Guarded R3 firmware required. Release L1 and both triggers to arm automatically.
+     Left stick overrides triggers outside its deadzone: forward/back and steering.
+     Center stick to arm. Cross (X) toggles camera light.
      Support ALL wheels for initial tests. Keep hands clear and power switch accessible.</p>
   <p>After installation, reset the R3 in Run mode to start its initialization dialog.</p>
   <form method="post" action="/drive-stop"><button type="submit">Stop and lock driving until reboot</button></form>
@@ -266,6 +280,7 @@ void onConnectedController(ControllerPtr controller) {
   }
   if (connectedController == nullptr) {
     driveControl.stop("New controller; release controls");
+    lightOff();
     connectedController = controller;
   } else if (connectedController != controller) {
     controller->disconnect();
@@ -275,6 +290,7 @@ void onConnectedController(ControllerPtr controller) {
 void onDisconnectedController(ControllerPtr controller) {
   if (connectedController == controller) {
     driveControl.stop("DualSense disconnected");
+    lightOff();
     connectedController = nullptr;
   }
 }
@@ -293,6 +309,8 @@ void handleStatus() {
   status += "Armed: " + String(driveControl.armed() ? "yes" : "no") + "\n";
   status += "Direction: " + String(driveControl.reverse() ? "reverse" : "forward") + "\n";
   status += "Motor command left/right: " + String(driveControl.left()) + "/" + String(driveControl.right()) + "\n";
+  status += "Control source: " + String(driveControl.stickActive() ? "left stick" : "triggers") + "\n";
+  status += "Camera light: " + String(cameraLight.on() ? "on" : "off") + "\n";
   status += "Motor frames sent: " + String(motorFramesSent) + "\n";
   status += "R3 timeout messages: " + String(r3Timeouts) + "\n";
   if (driveControl.haveInput()) status += "Input age (ms): " + String(driveControl.inputAge(millis())) + "\n";
@@ -322,6 +340,7 @@ void handleUpdateUpload() {
   if (upload.status == UPLOAD_FILE_START) {
     otaStarted = true;
     driveControl.stop("OTA started; locked until reboot");
+    lightOff();
     if (r3Initialized) sendStop();
     uploadFailed = false;
     uploadComplete = false;
@@ -374,6 +393,8 @@ void handleUpdateResult() {
 }  // namespace
 
 void setup() {
+  pinMode(CAMERA_LAMP_PIN, OUTPUT);
+  lightOff();
   Serial.begin(115200);
   uartLine.reserve(164);
   BP32.setup(&onConnectedController, &onDisconnectedController);
@@ -389,6 +410,7 @@ void setup() {
     server.on("/drive-stop", HTTP_POST, []() {
       manualStop = true;
       driveControl.stop("Manual stop; locked until reboot");
+      lightOff();
       if (r3Initialized) sendStop();
       server.send(200, "text/plain", "Driving locked until reboot. Stop sent if R3 initialized.");
     });
@@ -408,13 +430,26 @@ void loop() {
   const bool updated = BP32.update();
   pollR3();
   driveControl.check(millis(), controllerConnected(), r3Ready(), otaStarted || manualStop);
+  if (!controllerConnected() || otaStarted || manualStop ||
+      !driveControl.haveInput() || driveControl.inputAge(millis()) >= 250) {
+    lightOff();
+  }
   if (loopGap || r3TimeoutThisLoop) {
+    lightOff();
     driveControl.stop("Loop gap or R3 timeout; release controls");
     if (r3Initialized) sendStop();
   } else if (!otaStarted && !manualStop && r3Ready() && controllerConnected() &&
              updated && connectedController->hasData()) {
-    driveControl.input(millis(), connectedController->brake(),
-                       connectedController->throttle(), connectedController->l1());
+    const bool valid = driveControl.input(millis(), connectedController->brake(),
+        connectedController->throttle(), connectedController->l1(),
+        connectedController->axisX(), connectedController->axisY());
+    if (valid) {
+      // PlayStation Cross is Bluepad32's south/A button, not its x() button.
+      cameraLight.input(connectedController->a());
+      digitalWrite(CAMERA_LAMP_PIN, cameraLight.on() ? HIGH : LOW);
+    } else {
+      lightOff();
+    }
   }
   if (r3Initialized && millis() - lastStopTime >= MOTOR_INTERVAL_MS) {
     sendMotor(driveControl.left(), driveControl.right());

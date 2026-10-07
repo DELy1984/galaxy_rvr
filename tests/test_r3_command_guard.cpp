@@ -2,6 +2,7 @@
 #include "../firmware/r3_command_guard/R3InputParser.h"
 #include "../firmware/direct_dualsense_probe/TimeoutProbe.h"
 #include "../firmware/direct_dualsense_probe/DriveControl.h"
+#include "../firmware/direct_dualsense_probe/LightToggle.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -229,11 +230,66 @@ static void testDriveControl() {
   }
 }
 
+static void testStickAndLight() {
+  DriveControl drive;
+  CHECK(drive.input(0, 0, 0, false, 0, -512));
+  CHECK(!drive.armed());
+  CHECK(drive.input(1, 0, 0, false, 40, -40));
+  CHECK(drive.armed());
+  CHECK(drive.input(2, 1020, 1020, false, 0, -512));
+  CHECK(drive.stickActive() && drive.left() == 100 && drive.right() == 100);
+  CHECK(drive.input(3, 0, 0, true, 0, -512));
+  CHECK(drive.reverse() && drive.left() == 100 && drive.right() == 100);
+  CHECK(drive.input(4, 1020, 1020, false, 0, 512));
+  CHECK(drive.left() == -100 && drive.right() == -100);
+  CHECK(drive.input(5, 1020, 1020, false, 512, 0));
+  CHECK(drive.left() == 100 && drive.right() == -100);
+  CHECK(drive.input(6, 0, 0, false, -512, 0));
+  CHECK(drive.left() == -100 && drive.right() == 100);
+  CHECK(drive.input(7, 0, 0, false, 512, -512));
+  CHECK(drive.left() == 100 && drive.right() == 0);
+  CHECK(drive.input(8, 306, 765, false, 0, 0));
+  CHECK(!drive.stickActive() && drive.left() == -30 && drive.right() == -75);
+  CHECK(!drive.input(9, 0, 0, false, 513, 0));
+  CHECK(!drive.armed() && drive.left() == 0);
+  CHECK(drive.input(10, 0, 0, false, 41, 0));
+  CHECK(!drive.armed());
+  CHECK(drive.input(11, 0, 0, false));
+  for (int32_t x = -512; x <= 512; x += 16) {
+    for (int32_t y = -512; y <= 512; y += 16) {
+      CHECK(drive.input(12, 0, 0, false, x, y));
+      CHECK(drive.left() >= -100 && drive.left() <= 100);
+      CHECK(drive.right() >= -100 && drive.right() <= 100);
+    }
+  }
+  drive.check(262, true, true, false);
+  CHECK(!drive.armed() && drive.left() == 0);
+  LightToggle light;
+  light.input(true);
+  CHECK(!light.on());
+  light.input(false);
+  light.input(true);
+  CHECK(light.on());
+  light.input(true);
+  CHECK(light.on());
+  light.input(false);
+  light.input(true);
+  CHECK(!light.on());
+  light.input(false);
+  light.input(true);
+  CHECK(light.on());
+  light.reset();
+  CHECK(!light.on());
+  light.input(true);
+  CHECK(!light.on());
+}
+
 int main() {
   testGuard();
   testParser();
   testIntegration();
   testDriveControl();
+  testStickAndLight();
   TimeoutProbe probe;
   CHECK(probe.step(10000) == TimeoutProbe::Action::None);
   CHECK(probe.start(10000));
